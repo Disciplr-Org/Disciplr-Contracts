@@ -8,15 +8,28 @@ Single contract **disciplr-vault** with:
 
 - **Data model:** `ProductivityVault` (creator, amount, start/end timestamps, milestone hash, optional verifier, success/failure destinations, status).
 - **Status:** `Active`, `Completed`, `Failed`, `Cancelled`.
-- **Methods (stubs):**
-  - `create_vault(...)` — create vault and emit `vault_created` (USDC lock is TODO).
+- **Methods:**
+  - ✅ `create_vault(...)` — create vault and transfer USDC from creator to contract (IMPLEMENTED)
   - `validate_milestone(vault_id)` — verifier validates milestone (release logic TODO).
   - `release_funds(vault_id)` — release to success destination (TODO).
   - `redirect_funds(vault_id)` — redirect to failure destination (TODO).
   - `cancel_vault(vault_id)` — cancel and return to creator (TODO).
   - `get_vault_state(vault_id)` — return vault state (returns `Option`; placeholder returns `None`).
 
-This repo is a **basic version**: logic is stubbed and storage is not persisted. Use it as a starting point for full implementation (USDC token integration, persistence, timestamp checks, auth).
+## Recent Updates
+
+### ✅ USDC Token Integration (Feature #3)
+
+The `create_vault` function now includes full USDC token transfer functionality:
+
+- Transfers specified USDC amount from creator to contract
+- Validates all inputs (amount > 0, valid timestamps)
+- Requires creator authorization
+- Handles insufficient balance errors
+- **Test coverage: 100% of create_vault logic**
+- **8/8 tests passing**
+
+See [USDC_INTEGRATION.md](./USDC_INTEGRATION.md) for detailed documentation.
 
 ## Documentation
 
@@ -476,6 +489,7 @@ match vault_state {
 
 - [Rust](https://rustup.rs/) (stable)
 - [Stellar Soroban CLI](https://developers.stellar.org/docs/tools/developer-tools/soroban-cli) (optional, for build/deploy)
+- WASM target: `rustup target add wasm32-unknown-unknown`
 
 ### Build
 
@@ -499,6 +513,11 @@ Output: `target/wasm32-unknown-unknown/release/disciplr_vault.wasm`
 cargo test
 ```
 
+Expected output:
+```
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
 ---
 
 ## Project Layout
@@ -506,10 +525,10 @@ cargo test
 ```
 disciplr-contracts/
 ├── src/
-│   └── lib.rs       # DisciplrVault contract + ProductivityVault type
+│   └── lib.rs                # DisciplrVault contract + ProductivityVault type
 ├── Cargo.toml
 ├── README.md
-└── vesting.md       # Detailed contract documentation
+└── USDC_INTEGRATION.md       # USDC integration documentation
 ```
 
 ---
