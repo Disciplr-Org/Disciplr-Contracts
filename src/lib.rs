@@ -2,6 +2,7 @@
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, Address, BytesN, Env, Symbol,
+    symbol_short,
 };
 
 #[contracttype]
@@ -31,7 +32,7 @@ pub struct DisciplrVault;
 
 #[contractimpl]
 impl DisciplrVault {
-    const NEXT_VAULT_ID_KEY: Symbol = Symbol::short("next_vault_id");
+    const NEXT_VAULT_ID_KEY: Symbol = symbol_short!("vault_id");
 
     /// Create a new productivity vault. Caller must have approved USDC transfer to this contract.
     pub fn create_vault(
@@ -48,7 +49,7 @@ impl DisciplrVault {
         creator.require_auth();
 
         // Retrieve the next vault ID from storage, default to 0 if not set
-        let next_vault_id: u32 = env.storage().get(&Self::NEXT_VAULT_ID_KEY).unwrap_or(0);
+        let next_vault_id: u32 = env.storage().persistent().get(&Self::NEXT_VAULT_ID_KEY).unwrap_or(0);
 
         // Create the vault metadata
         let vault = ProductivityVault {
@@ -64,10 +65,10 @@ impl DisciplrVault {
         };
 
         // Persist the vault metadata (using the vault ID as the key)
-        env.storage().set(&next_vault_id, &vault);
+        env.storage().persistent().set(&next_vault_id, &vault);
 
         // Increment and persist the next vault ID
-        env.storage().set(&Self::NEXT_VAULT_ID_KEY, &(next_vault_id + 1));
+        env.storage().persistent().set(&Self::NEXT_VAULT_ID_KEY, &(next_vault_id + 1));
 
         // Publish an event for the created vault
         env.events().publish(
