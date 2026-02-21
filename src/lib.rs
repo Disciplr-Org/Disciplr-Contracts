@@ -67,10 +67,16 @@ impl DisciplrVault {
             panic!("end_timestamp must be greater than start_timestamp");
         }
 
-        let mut vault_count: u32 = env.storage().instance().get(&DataKey::VaultCount).unwrap_or(0);
+        let mut vault_count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::VaultCount)
+            .unwrap_or(0);
         let vault_id = vault_count;
         vault_count += 1;
-        env.storage().instance().set(&DataKey::VaultCount, &vault_count);
+        env.storage()
+            .instance()
+            .set(&DataKey::VaultCount, &vault_count);
 
         let vault = ProductivityVault {
             creator,
@@ -83,13 +89,13 @@ impl DisciplrVault {
             failure_destination,
             status: VaultStatus::Active,
         };
-        
-        env.storage().instance().set(&DataKey::Vault(vault_id), &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "vault_created"), vault_id),
-            vault,
-        );
+        env.storage()
+            .instance()
+            .set(&DataKey::Vault(vault_id), &vault);
+
+        env.events()
+            .publish((Symbol::new(&env, "vault_created"), vault_id), vault);
         vault_id
     }
 
@@ -121,10 +127,8 @@ impl DisciplrVault {
         vault.status = VaultStatus::Completed;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "milestone_validated"), vault_id),
-            (),
-        );
+        env.events()
+            .publish((Symbol::new(&env, "milestone_validated"), vault_id), ());
         Ok(true)
     }
 
@@ -213,10 +217,22 @@ mod tests {
     #[should_panic]
     fn test_create_vault_fails_without_auth() {
         let env = Env::default();
-        let creator = Address::from_str(&env, "GA7QSTUFYSDQ6UJ4ZCI4NZ4XVAFYZZL64YWNMUBCNY4FWYDTFTCHMLYT");
-        let success_addr = Address::from_str(&env, "GBRPYHIL2CI3WHZDTOOQFC6EB4PSLTW5L6GR6VVBW3DZEWYWHTVJJTH");
-        let failure_addr = Address::from_str(&env, "GBL3F5IBYFVZ5G76XPVSLVZF4TP5ELK3V3XKX7DDBMF4UGQJ5AJ5MCEE");
-        let verifier = Address::from_str(&env, "GAEB3HFKHWVT4JNGVR5VXAQTFVVFXSWK3HMJKHCX5ZA67OPXVSXL5VU");
+        let creator = Address::from_str(
+            &env,
+            "GA7QSTUFYSDQ6UJ4ZCI4NZ4XVAFYZZL64YWNMUBCNY4FWYDTFTCHMLYT",
+        );
+        let success_addr = Address::from_str(
+            &env,
+            "GBRPYHIL2CI3WHZDTOOQFC6EB4PSLTW5L6GR6VVBW3DZEWYWHTVJJTH",
+        );
+        let failure_addr = Address::from_str(
+            &env,
+            "GBL3F5IBYFVZ5G76XPVSLVZF4TP5ELK3V3XKX7DDBMF4UGQJ5AJ5MCEE",
+        );
+        let verifier = Address::from_str(
+            &env,
+            "GAEB3HFKHWVT4JNGVR5VXAQTFVVFXSWK3HMJKHCX5ZA67OPXVSXL5VU",
+        );
         let milestone_hash = BytesN::<32>::from_array(&env, &[0u8; 32]);
 
         // DO NOT authorize the creator
@@ -240,11 +256,26 @@ mod tests {
     #[should_panic]
     fn test_create_vault_caller_differs_from_creator() {
         let env = Env::default();
-        let creator = Address::from_str(&env, "GA7QSTUFYSDQ6UJ4ZCI4NZ4XVAFYZZL64YWNMUBCNY4FWYDTFTCHMLYT");
-        let different_caller = Address::from_str(&env, "GBRPYHIL2CI3WHZDTOOQFC6EB4PSLTW5L6GR6VVBW3DZEWYWHTVJJTH");
-        let success_addr = Address::from_str(&env, "GBL3F5IBYFVZ5G76XPVSLVZF4TP5ELK3V3XKX7DDBMF4UGQJ5AJ5MCEE");
-        let failure_addr = Address::from_str(&env, "GAEB3HFKHWVT4JNGVR5VXAQTFVVFXSWK3HMJKHCX5ZA67OPXVSXL5VU");
-        let verifier = Address::from_str(&env, "GCZQZ4Q67GKSUQ3BP4M6IMDMVGPEMYG2WN4FXBFTV3VBWVVDNVHZPMHA");
+        let creator = Address::from_str(
+            &env,
+            "GA7QSTUFYSDQ6UJ4ZCI4NZ4XVAFYZZL64YWNMUBCNY4FWYDTFTCHMLYT",
+        );
+        let different_caller = Address::from_str(
+            &env,
+            "GBRPYHIL2CI3WHZDTOOQFC6EB4PSLTW5L6GR6VVBW3DZEWYWHTVJJTH",
+        );
+        let success_addr = Address::from_str(
+            &env,
+            "GBL3F5IBYFVZ5G76XPVSLVZF4TP5ELK3V3XKX7DDBMF4UGQJ5AJ5MCEE",
+        );
+        let failure_addr = Address::from_str(
+            &env,
+            "GAEB3HFKHWVT4JNGVR5VXAQTFVVFXSWK3HMJKHCX5ZA67OPXVSXL5VU",
+        );
+        let verifier = Address::from_str(
+            &env,
+            "GCZQZ4Q67GKSUQ3BP4M6IMDMVGPEMYG2WN4FXBFTV3VBWVVDNVHZPMHA",
+        );
         let milestone_hash = BytesN::<32>::from_array(&env, &[1u8; 32]);
 
         // Authorize the different caller, NOT the creator
@@ -319,10 +350,22 @@ mod tests {
     fn test_authorization_prevents_unauthorized_creation() {
         let env = Env::default();
 
-        let creator = Address::from_str(&env, "GA7QSTUFYSDQ6UJ4ZCI4NZ4XVAFYZZL64YWNMUBCNY4FWYDTFTCHMLYT");
-        let attacker = Address::from_str(&env, "GBRPYHIL2CI3WHZDTOOQFC6EB4PSLTW5L6GR6VVBW3DZEWYWHTVJJTH");
-        let success_addr = Address::from_str(&env, "GBL3F5IBYFVZ5G76XPVSLVZF4TP5ELK3V3XKX7DDBMF4UGQJ5AJ5MCEE");
-        let failure_addr = Address::from_str(&env, "GAEB3HFKHWVT4JNGVR5VXAQTFVVFXSWK3HMJKHCX5ZA67OPXVSXL5VU");
+        let creator = Address::from_str(
+            &env,
+            "GA7QSTUFYSDQ6UJ4ZCI4NZ4XVAFYZZL64YWNMUBCNY4FWYDTFTCHMLYT",
+        );
+        let attacker = Address::from_str(
+            &env,
+            "GBRPYHIL2CI3WHZDTOOQFC6EB4PSLTW5L6GR6VVBW3DZEWYWHTVJJTH",
+        );
+        let success_addr = Address::from_str(
+            &env,
+            "GBL3F5IBYFVZ5G76XPVSLVZF4TP5ELK3V3XKX7DDBMF4UGQJ5AJ5MCEE",
+        );
+        let failure_addr = Address::from_str(
+            &env,
+            "GAEB3HFKHWVT4JNGVR5VXAQTFVVFXSWK3HMJKHCX5ZA67OPXVSXL5VU",
+        );
         let milestone_hash = BytesN::<32>::from_array(&env, &[4u8; 32]);
 
         // Attacker tries to authorize themselves
@@ -346,17 +389,35 @@ mod tests {
     /// Helper: build a default set of valid vault parameters.
     fn make_vault_args(
         env: &Env,
-    ) -> (Address, i128, u64, u64, BytesN<32>, Option<Address>, Address, Address) {
-        let creator        = Address::generate(env);
-        let success_dest   = Address::generate(env);
-        let failure_dest   = Address::generate(env);
-        let verifier       = Address::generate(env);
+    ) -> (
+        Address,
+        i128,
+        u64,
+        u64,
+        BytesN<32>,
+        Option<Address>,
+        Address,
+        Address,
+    ) {
+        let creator = Address::generate(env);
+        let success_dest = Address::generate(env);
+        let failure_dest = Address::generate(env);
+        let verifier = Address::generate(env);
         let milestone_hash = BytesN::from_array(env, &[1u8; 32]);
-        let amount         = 1_000_000i128; // 1 USDC (6 decimals)
-        let start          = 1_000_000u64;
-        let end            = 2_000_000u64;
+        let amount = 1_000_000i128; // 1 USDC (6 decimals)
+        let start = 1_000_000u64;
+        let end = 2_000_000u64;
 
-        (creator, amount, start, end, milestone_hash, Some(verifier), success_dest, failure_dest)
+        (
+            creator,
+            amount,
+            start,
+            end,
+            milestone_hash,
+            Some(verifier),
+            success_dest,
+            failure_dest,
+        )
     }
 
     /// create_vault must:
@@ -369,11 +430,18 @@ mod tests {
         env.mock_all_auths(); // satisfies creator.require_auth()
 
         let contract_id = env.register(DisciplrVault, ());
-        let client      = DisciplrVaultClient::new(&env, &contract_id);
+        let client = DisciplrVaultClient::new(&env, &contract_id);
 
-        let (creator, amount, start_timestamp, end_timestamp,
-             milestone_hash, verifier, success_destination, failure_destination) =
-            make_vault_args(&env);
+        let (
+            creator,
+            amount,
+            start_timestamp,
+            end_timestamp,
+            milestone_hash,
+            verifier,
+            success_destination,
+            failure_destination,
+        ) = make_vault_args(&env);
 
         // ── Invoke ───────────────────────────────────────────────────────────
         let vault_id = client.create_vault(
@@ -424,14 +492,24 @@ mod tests {
         assert_eq!(all_events.len(), 1, "exactly one event should be emitted");
 
         let (emitting_contract, topics, _data) = all_events.get(0).unwrap();
-        assert_eq!(emitting_contract, contract_id, "event must come from the vault contract");
+        assert_eq!(
+            emitting_contract, contract_id,
+            "event must come from the vault contract"
+        );
 
         // topics[0] = Symbol("vault_created"), topics[1] = vault_id
         let event_name: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
         let event_vault_id: u32 = topics.get(1).unwrap().try_into_val(&env).unwrap();
 
-        assert_eq!(event_name, Symbol::new(&env, "vault_created"), "event name must be vault_created");
-        assert_eq!(event_vault_id, vault_id, "event vault_id must match the returned vault_id");
+        assert_eq!(
+            event_name,
+            Symbol::new(&env, "vault_created"),
+            "event name must be vault_created"
+        );
+        assert_eq!(
+            event_vault_id, vault_id,
+            "event vault_id must match the returned vault_id"
+        );
     }
 
     /// Documents expected timestamp validation behaviour.
@@ -443,12 +521,14 @@ mod tests {
         env.mock_all_auths();
 
         let contract_id = env.register(DisciplrVault, ());
-        let client      = DisciplrVaultClient::new(&env, &contract_id);
+        let client = DisciplrVaultClient::new(&env, &contract_id);
 
         let (creator, amount, start, _, hash, verifier, s_dest, f_dest) = make_vault_args(&env);
 
         // end == start — should panic once validation is added
-        client.create_vault(&creator, &amount, &start, &start, &hash, &verifier, &s_dest, &f_dest);
+        client.create_vault(
+            &creator, &amount, &start, &start, &hash, &verifier, &s_dest, &f_dest,
+        );
     }
 
     #[test]
@@ -464,7 +544,7 @@ mod tests {
 
         let start_time = 1000;
         let end_time = 2000;
-        
+
         env.ledger().set_timestamp(start_time);
 
         // Sign for create_vault
@@ -509,7 +589,7 @@ mod tests {
 
         let start_time = 1000;
         let end_time = 2000;
-        
+
         env.ledger().set_timestamp(start_time);
         env.mock_all_auths();
 
@@ -534,4 +614,3 @@ mod tests {
         assert_eq!(vault.status, VaultStatus::Completed);
     }
 }
-
