@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 5,
+    "address": 4,
     "nonce": 0
   },
   "auth": [
@@ -20,21 +20,19 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 1000000
+                    "lo": 100000000
                   }
                 },
                 {
-                  "u64": 1000000
+                  "u64": 1000
                 },
                 {
-                  "u64": 2000000
+                  "u64": 2000
                 },
                 {
-                  "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                  "bytes": "abababababababababababababababababababababababababababababababab"
                 },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                },
+                "void",
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
@@ -102,7 +100,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 1000000
+                                  "lo": 100000000
                                 }
                               }
                             },
@@ -119,7 +117,7 @@
                                 "symbol": "end_timestamp"
                               },
                               "val": {
-                                "u64": 2000000
+                                "u64": 2000
                               }
                             },
                             {
@@ -135,7 +133,7 @@
                                 "symbol": "milestone_hash"
                               },
                               "val": {
-                                "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                                "bytes": "abababababababababababababababababababababababababababababababab"
                               }
                             },
                             {
@@ -143,7 +141,7 @@
                                 "symbol": "start_timestamp"
                               },
                               "val": {
-                                "u64": 1000000
+                                "u64": 1000
                               }
                             },
                             {
@@ -166,9 +164,7 @@
                               "key": {
                                 "symbol": "verifier"
                               },
-                              "val": {
-                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                              }
+                              "val": "void"
                             }
                           ]
                         }
@@ -276,7 +272,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 1000000
+                      "lo": 100000000
                     }
                   }
                 },
@@ -293,7 +289,7 @@
                     "symbol": "end_timestamp"
                   },
                   "val": {
-                    "u64": 2000000
+                    "u64": 2000
                   }
                 },
                 {
@@ -309,7 +305,7 @@
                     "symbol": "milestone_hash"
                   },
                   "val": {
-                    "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                    "bytes": "abababababababababababababababababababababababababababababababab"
                   }
                 },
                 {
@@ -317,7 +313,7 @@
                     "symbol": "start_timestamp"
                   },
                   "val": {
-                    "u64": 1000000
+                    "u64": 1000
                   }
                 },
                 {
@@ -340,9 +336,7 @@
                   "key": {
                     "symbol": "verifier"
                   },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                  }
+                  "val": "void"
                 }
               ]
             }
