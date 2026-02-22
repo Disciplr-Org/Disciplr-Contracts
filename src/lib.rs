@@ -17,6 +17,17 @@ pub enum DataKey {
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
 /// Lifecycle status of a productivity vault.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    VaultNotFound = 1,
+    NotAuthorized = 2,
+    VaultNotActive = 3,
+    InvalidTimestamp = 4,
+    MilestoneExpired = 5,
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VaultStatus {
@@ -181,9 +192,17 @@ impl DisciplrVault {
         // TODO: pull USDC from creator via token::Client
 
         let vault_id = next_vault_id(&env);
+        if end_timestamp <= start_timestamp {
+            panic!("end_timestamp must be greater than start_timestamp");
+        }
+
+        let mut vault_count: u32 = env.storage().instance().get(&DataKey::VaultCount).unwrap_or(0);
+        let vault_id = vault_count;
+        vault_count += 1;
+        env.storage().instance().set(&DataKey::VaultCount, &vault_count);
 
         let vault = ProductivityVault {
-            creator: creator.clone(),
+            creator,
             amount,
             start_timestamp,
             end_timestamp,
@@ -194,6 +213,8 @@ impl DisciplrVault {
             status: VaultStatus::Active,
         };
         write_vault(&env, vault_id, &vault);
+        
+        env.storage().instance().set(&DataKey::Vault(vault_id), &vault);
 
         env.events().publish(
             (Symbol::new(&env, "vault_created"), vault_id),
