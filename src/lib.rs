@@ -1,3 +1,19 @@
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as TestAddress, Env, Address, BytesN};
+
+    #[test]
+    fn cancel_vault_fails_for_nonexistent_vault() {
+        let env = Env::default();
+        let contract = DisciplrVault {};
+        let creator = Address::from_account_id(&env, &TestAddress::random(&env));
+        let vault_id = 9999; // Non-existent vault_id
+        // Should fail: cancel_vault returns false or panics
+        let result = contract.cancel_vault(env.clone(), vault_id);
+        assert!(!result, "cancel_vault should fail for non-existent vault_id");
+    }
+}
 #![no_std]
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, Symbol};
@@ -70,6 +86,13 @@ pub struct VaultCreatedEvent {
     pub verifier: Option<Address>,
     pub success_destination: Address,
     pub failure_destination: Address,
+pub enum DataKey {
+    NextVaultId,
+    Vault(u32),
+#[derive(Clone)]
+pub enum DataKey {
+    Vault(u32),
+    VaultCount,
 }
 
 /// Payload for `milestone_validated` events.
@@ -192,15 +215,16 @@ impl DisciplrVault {
         // TODO: pull USDC from creator via token::Client
 
         let vault_id = next_vault_id(&env);
+        // Validate that start_timestamp is strictly before end_timestamp.
+        // A vault with start >= end has no valid time window and must be rejected.
         if end_timestamp <= start_timestamp {
-            panic!("end_timestamp must be greater than start_timestamp");
+            panic!("create_vault: start_timestamp must be strictly less than end_timestamp");
         }
 
         let mut vault_count: u32 = env.storage().instance().get(&DataKey::VaultCount).unwrap_or(0);
         let vault_id = vault_count;
         vault_count += 1;
         env.storage().instance().set(&DataKey::VaultCount, &vault_count);
-
         let vault = ProductivityVault {
             creator,
             amount,
@@ -213,6 +237,17 @@ impl DisciplrVault {
             status: VaultStatus::Active,
         };
         write_vault(&env, vault_id, &vault);
+        let vault_id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextVaultId)
+            .unwrap_or(0u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vault(vault_id), &vault);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextVaultId, &(vault_id + 1));
         
         env.storage().instance().set(&DataKey::Vault(vault_id), &vault);
 
@@ -412,6 +447,32 @@ impl DisciplrVault {
     /// Return vault state for a given id, or `None` if not found.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
         env.storage().persistent().get(&DataKey::Vault(vault_id))
+    }
+
+    #[test]
+    fn test_release_funds_rejects_non_existent_vault() {
+        let env = Env::default();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+
+        // Try to release funds for a non-existent vault ID
+        let result = client.try_release_funds(&999);
+        assert!(result.is_err());
+        
+        // Simply assert that an error occurred - the exact error type is verified by the implementation
+    }
+
+    #[test]
+    fn test_redirect_funds_rejects_non_existent_vault() {
+        let env = Env::default();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+
+        // Try to redirect funds for a non-existent vault ID
+        let result = client.try_redirect_funds(&999);
+        assert!(result.is_err());
+        
+        // Simply assert that an error occurred - the exact error type is verified by the implementation
     }
 }
 
