@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol};
 
 // ─── Storage Keys ────────────────────────────────────────────────────────────
 
@@ -17,6 +17,18 @@ pub enum DataKey {
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
 /// Lifecycle status of a productivity vault.
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    VaultNotFound = 1,
+    NotAuthorized = 2,
+    VaultNotActive = 3,
+    InvalidTimestamp = 4,
+    MilestoneExpired = 5,
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VaultStatus {
@@ -183,7 +195,7 @@ impl DisciplrVault {
         let vault_id = next_vault_id(&env);
 
         let vault = ProductivityVault {
-            creator: creator.clone(),
+            creator,
             amount,
             start_timestamp,
             end_timestamp,
@@ -199,7 +211,7 @@ impl DisciplrVault {
             (Symbol::new(&env, "vault_created"), vault_id),
             VaultCreatedEvent {
                 vault_id,
-                creator,
+                creator: vault.creator.clone(),
                 amount,
                 start_timestamp,
                 end_timestamp,
