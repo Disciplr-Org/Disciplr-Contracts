@@ -698,12 +698,21 @@ git remote add origin <your-disciplr-contracts-repo-url>
 git push -u origin main
 ```
 
-Replace `<your-disciplr-contracts-repo-url>` with your actual repository URL.
+## Security and Testing
 
----
+### Security Notes
 
-## Changelog
+- **Timestamp Validation**: Milestone validation is strictly prohibited once the ledger timestamp reaches or exceeds `end_timestamp`. This prevents "late" validations and ensures the time-lock is honored.
+- **Authentication**: `validate_milestone` requires authorization from the verifier (if specified) or the creator. This ensures only authorized parties can progress the vault state.
+- **State Integrity**: Operations like `validate_milestone`, `release_funds`, and `cancel_vault` check the current `status` (must be `Active`) to prevent double-spending or invalid state transitions.
 
-| Version | Changes |
-|---------|---------|
-| 0.1.0 | Initial release with basic vault structure, stubbed implementations |
+### Test Coverage
+
+The project includes unit tests for core logic, specifically:
+- Verification of milestone rejection after `end_timestamp`.
+- Verification of successful milestone validation before `end_timestamp`.
+
+To run tests:
+```bash
+cargo test
+```
