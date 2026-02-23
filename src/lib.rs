@@ -280,11 +280,6 @@ impl DisciplrVault {
             return Err(Error::MilestoneExpired);
         }
 
-        // If a verifier is set, require their authorization.
-        if let Some(ref verifier) = vault.verifier {
-            verifier.require_auth();
-        }
-
         vault.milestone_validated = true;
         env.storage().instance().set(&vault_key, &vault);
 
