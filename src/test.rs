@@ -63,14 +63,7 @@ fn create_self_vault(
     hash: &BytesN<32>,
 ) -> u32 {
     client.create_vault(
-        creator,
-        &100_i128,
-        &1_000_u64,
-        &2_000_u64,
-        hash,
-        &None,
-        success,
-        failure,
+        creator, &100_i128, &1_000_u64, &2_000_u64, hash, &None, success, failure,
     )
 }
 
@@ -79,8 +72,7 @@ fn create_self_vault(
 #[test]
 fn test_create_vault_emits_event_and_persists() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
     assert_eq!(vault_id, 0);
 
     // Verify event immediately — before any other contract call that would
@@ -118,12 +110,9 @@ fn test_create_vault_emits_event_and_persists() {
 #[test]
 fn test_vault_ids_increment() {
     let (_, client, creator, verifier, success, failure, hash) = setup();
-    let id0 =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
-    let id1 =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
-    let id2 =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let id0 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let id1 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let id2 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     assert_eq!(id0, 0);
     assert_eq!(id1, 1);
@@ -135,14 +124,7 @@ fn test_vault_ids_increment() {
 fn test_create_vault_zero_amount() {
     let (_, client, creator, _, success, failure, hash) = setup();
     client.create_vault(
-        &creator,
-        &0_i128,
-        &1_000_u64,
-        &2_000_u64,
-        &hash,
-        &None,
-        &success,
-        &failure,
+        &creator, &0_i128, &1_000_u64, &2_000_u64, &hash, &None, &success, &failure,
     );
 }
 
@@ -151,14 +133,7 @@ fn test_create_vault_zero_amount() {
 fn test_create_vault_invalid_timestamps() {
     let (_, client, creator, _, success, failure, hash) = setup();
     client.create_vault(
-        &creator,
-        &100_i128,
-        &2_000_u64,
-        &1_000_u64,
-        &hash,
-        &None,
-        &success,
-        &failure,
+        &creator, &100_i128, &2_000_u64, &1_000_u64, &hash, &None, &success, &failure,
     );
 }
 
@@ -167,8 +142,7 @@ fn test_create_vault_invalid_timestamps() {
 #[test]
 fn test_validate_milestone_emits_event() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     // Verify create event immediately after create_vault.
     assert_eq!(
@@ -227,8 +201,7 @@ fn test_validate_milestone_emits_event() {
 #[should_panic(expected = "caller is not the designated verifier")]
 fn test_validate_milestone_wrong_verifier() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     env.ledger().with_mut(|li| li.timestamp = 1_500);
     let impostor = Address::generate(&env);
@@ -239,8 +212,7 @@ fn test_validate_milestone_wrong_verifier() {
 #[should_panic(expected = "past deadline")]
 fn test_validate_milestone_past_deadline() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     env.ledger().with_mut(|li| li.timestamp = 3_000);
     client.validate_milestone(&verifier, &vault_id);
@@ -250,8 +222,7 @@ fn test_validate_milestone_past_deadline() {
 #[should_panic(expected = "vault is not active")]
 fn test_validate_milestone_already_completed() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     env.ledger().with_mut(|li| li.timestamp = 1_500);
     client.validate_milestone(&verifier, &vault_id);
@@ -331,8 +302,7 @@ fn test_release_funds_emits_event() {
 #[should_panic(expected = "vault has a verifier; use validate_milestone")]
 fn test_release_funds_with_verifier() {
     let (_, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
     client.release_funds(&creator, &vault_id);
 }
 
@@ -350,8 +320,7 @@ fn test_release_funds_wrong_creator() {
 #[test]
 fn test_redirect_funds_emits_event() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     // Verify create event immediately after create_vault.
     assert_eq!(
@@ -409,8 +378,7 @@ fn test_redirect_funds_emits_event() {
 #[should_panic(expected = "deadline has not passed")]
 fn test_redirect_funds_before_deadline() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     env.ledger().with_mut(|li| li.timestamp = 1_500);
     client.redirect_funds(&vault_id);
@@ -420,8 +388,7 @@ fn test_redirect_funds_before_deadline() {
 #[should_panic(expected = "vault is not active")]
 fn test_redirect_funds_already_failed() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
     env.ledger().with_mut(|li| li.timestamp = 3_000);
     client.redirect_funds(&vault_id);
     // Second call → already Failed
@@ -433,8 +400,7 @@ fn test_redirect_funds_already_failed() {
 #[test]
 fn test_cancel_vault_emits_event() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     // Verify create event immediately after create_vault.
     assert_eq!(
@@ -492,8 +458,7 @@ fn test_cancel_vault_emits_event() {
 #[should_panic(expected = "caller is not the vault creator")]
 fn test_cancel_vault_wrong_creator() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
     let stranger = Address::generate(&env);
     env.ledger().with_mut(|li| li.timestamp = 500);
     client.cancel_vault(&stranger, &vault_id);
@@ -503,8 +468,7 @@ fn test_cancel_vault_wrong_creator() {
 #[should_panic(expected = "cannot cancel after vault has started")]
 fn test_cancel_vault_after_start() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
     env.ledger().with_mut(|li| li.timestamp = 1_500);
     client.cancel_vault(&creator, &vault_id);
 }
@@ -513,8 +477,7 @@ fn test_cancel_vault_after_start() {
 #[should_panic(expected = "vault is not active")]
 fn test_cancel_vault_already_cancelled() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
     env.ledger().with_mut(|li| li.timestamp = 500);
     client.cancel_vault(&creator, &vault_id);
     client.cancel_vault(&creator, &vault_id);
@@ -534,8 +497,7 @@ fn test_get_vault_state_nonexistent() {
 #[should_panic(expected = "vault is not active")]
 fn test_cannot_redirect_after_completion() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     env.ledger().with_mut(|li| li.timestamp = 1_500);
     client.validate_milestone(&verifier, &vault_id);
@@ -549,8 +511,7 @@ fn test_cannot_redirect_after_completion() {
 #[should_panic(expected = "vault is not active")]
 fn test_cannot_cancel_after_redirect() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
-    let vault_id =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let vault_id = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
 
     env.ledger().with_mut(|li| li.timestamp = 3_000);
     client.redirect_funds(&vault_id);
@@ -613,10 +574,8 @@ fn test_redirect_funds_event_targets_correct_vault_id() {
     let (env, client, creator, verifier, success, failure, hash) = setup();
 
     // Create two vaults
-    let _id0 =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
-    let id1 =
-        create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let _id0 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let id1 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
     assert_eq!(id1, 1);
 
     env.ledger().with_mut(|li| li.timestamp = 3_000); // past deadline
@@ -738,14 +697,8 @@ fn test_no_event_emitted_on_create_vault_failure() {
 
     // This will panic — invalid timestamps
     let result = client.try_create_vault(
-        &creator,
-        &100_i128,
-        &2_000_u64, // start > end
-        &1_000_u64,
-        &hash,
-        &None,
-        &success,
-        &failure,
+        &creator, &100_i128, &2_000_u64, // start > end
+        &1_000_u64, &hash, &None, &success, &failure,
     );
     assert!(result.is_err());
 

@@ -267,10 +267,8 @@ impl DisciplrVault {
         };
         write_vault(&env, vault_id, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_released"), vault_id),
-            event,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "funds_released"), vault_id), event);
         true
     }
 
@@ -292,10 +290,8 @@ impl DisciplrVault {
         };
         write_vault(&env, vault_id, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_redirected"), vault_id),
-            event,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "funds_redirected"), vault_id), event);
         true
     }
 
@@ -321,18 +317,14 @@ impl DisciplrVault {
         };
         write_vault(&env, vault_id, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "vault_cancelled"), vault_id),
-            event,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), event);
         true
     }
 
     /// Return vault state for a given id, or `None` if not found.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Vault(vault_id))
+        env.storage().persistent().get(&DataKey::Vault(vault_id))
     }
 }
 
