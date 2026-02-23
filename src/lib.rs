@@ -1,6 +1,9 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
+};
 
 // ─── Storage Keys ────────────────────────────────────────────────────────────
 
@@ -16,8 +19,6 @@ pub enum DataKey {
 
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
-/// Lifecycle status of a productivity vault.
-
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -29,6 +30,7 @@ pub enum Error {
     MilestoneExpired = 5,
 }
 
+/// Lifecycle status of a productivity vault.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VaultStatus {
@@ -79,6 +81,8 @@ pub struct VaultCreatedEvent {
 pub struct MilestoneValidatedEvent {
     pub vault_id: u32,
     pub verifier: Address,
+    pub destination: Address,
+    pub amount: i128,
     pub status: VaultStatus,
 }
 
@@ -158,18 +162,11 @@ fn require_active(vault: &ProductivityVault) {
 
 #[contractimpl]
 impl DisciplrVault {
-    /// Create a new productivity vault.
+    /// Create a new productivity vault. Caller must have approved USDC transfer to this contract.
     ///
-    /// The caller (`creator`) must authorize the invocation.
-    /// A unique vault ID is allocated and the vault is persisted with
-    /// `VaultStatus::Active`.
-    ///
-    /// **Event:** `vault_created` — topics: `(symbol, vault_id)`, data:
-    /// [`VaultCreatedEvent`].
-    ///
-    /// # Panics
-    /// * `amount` ≤ 0
-    /// * `end_timestamp` ≤ `start_timestamp`
+    /// # Validation Rules
+    /// - Requires `amount > 0`.
+    /// - Requires `start_timestamp < end_timestamp`.
     pub fn create_vault(
         env: Env,
         creator: Address,
@@ -195,7 +192,7 @@ impl DisciplrVault {
         let vault_id = next_vault_id(&env);
 
         let vault = ProductivityVault {
-            creator,
+            creator: creator.clone(),
             amount,
             start_timestamp,
             end_timestamp,
@@ -269,6 +266,8 @@ impl DisciplrVault {
             MilestoneValidatedEvent {
                 vault_id,
                 verifier,
+                destination: vault.success_destination.clone(),
+                amount: vault.amount,
                 status: VaultStatus::Completed,
             },
         );
