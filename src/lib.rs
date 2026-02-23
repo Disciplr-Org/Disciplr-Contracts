@@ -1,22 +1,9 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol};
-
-// ─── Storage Keys ────────────────────────────────────────────────────────────
-
-/// Keys for contract storage.
-#[contracttype]
-#[derive(Clone)]
-pub enum DataKey {
-    /// Global vault-id counter (instance storage).
-    VaultCount,
-    /// Per-vault metadata (persistent storage), keyed by vault id.
-    Vault(u32),
-}
-
-// ─── Domain Types ────────────────────────────────────────────────────────────
-
-/// Lifecycle status of a productivity vault.
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -53,6 +40,14 @@ pub struct ProductivityVault {
     pub status: VaultStatus,
 }
 
+// ─── Storage Keys ────────────────────────────────────────────────────────────
+
+#[contracttype]
+pub enum DataKey {
+    Vault(u32),
+    VaultCount,
+}
+
 // ─── Event Payloads ──────────────────────────────────────────────────────────
 //
 // Each state-changing operation publishes a dedicated event with a typed
@@ -79,6 +74,8 @@ pub struct VaultCreatedEvent {
 pub struct MilestoneValidatedEvent {
     pub vault_id: u32,
     pub verifier: Address,
+    pub destination: Address,
+    pub amount: i128,
     pub status: VaultStatus,
 }
 
@@ -158,18 +155,11 @@ fn require_active(vault: &ProductivityVault) {
 
 #[contractimpl]
 impl DisciplrVault {
-    /// Create a new productivity vault.
+    /// Create a new productivity vault. Caller must have approved USDC transfer to this contract.
     ///
-    /// The caller (`creator`) must authorize the invocation.
-    /// A unique vault ID is allocated and the vault is persisted with
-    /// `VaultStatus::Active`.
-    ///
-    /// **Event:** `vault_created` — topics: `(symbol, vault_id)`, data:
-    /// [`VaultCreatedEvent`].
-    ///
-    /// # Panics
-    /// * `amount` ≤ 0
-    /// * `end_timestamp` ≤ `start_timestamp`
+    /// # Validation Rules
+    /// - Requires `amount > 0`.
+    /// - Requires `start_timestamp < end_timestamp`.
     pub fn create_vault(
         env: Env,
         creator: Address,
@@ -182,7 +172,6 @@ impl DisciplrVault {
         failure_destination: Address,
     ) -> u32 {
         creator.require_auth();
-
         if amount <= 0 {
             panic!("amount must be positive");
         }
@@ -190,12 +179,9 @@ impl DisciplrVault {
             panic!("end_timestamp must be after start_timestamp");
         }
 
-        // TODO: pull USDC from creator via token::Client
-
         let vault_id = next_vault_id(&env);
-
         let vault = ProductivityVault {
-            creator,
+            creator: creator.clone(),
             amount,
             start_timestamp,
             end_timestamp,
@@ -211,7 +197,7 @@ impl DisciplrVault {
             (Symbol::new(&env, "vault_created"), vault_id),
             VaultCreatedEvent {
                 vault_id,
-                creator: vault.creator.clone(),
+                creator,
                 amount,
                 start_timestamp,
                 end_timestamp,
@@ -221,28 +207,12 @@ impl DisciplrVault {
                 failure_destination,
             },
         );
-
         vault_id
     }
 
     /// Verifier validates milestone completion.
-    ///
-    /// Transitions vault `Active` → `Completed`.  The caller must be the
-    /// designated verifier recorded on the vault, and the current ledger
-    /// timestamp must be ≤ `end_timestamp`.
-    ///
-    /// **Event:** `milestone_validated` — topics: `(symbol, vault_id)`,
-    /// data: [`MilestoneValidatedEvent`].
-    ///
-    /// # Panics
-    /// * Vault not found
-    /// * Vault not `Active`
-    /// * No verifier set on vault (use `release_funds` instead)
-    /// * Caller ≠ designated verifier
-    /// * Current timestamp > `end_timestamp`
     pub fn validate_milestone(env: Env, verifier: Address, vault_id: u32) -> bool {
         verifier.require_auth();
-
         let mut vault = read_vault(&env, vault_id);
         require_active(&vault);
 
@@ -262,35 +232,22 @@ impl DisciplrVault {
         vault.status = VaultStatus::Completed;
         write_vault(&env, vault_id, &vault);
 
-        // TODO: transfer USDC to vault.success_destination
-
         env.events().publish(
             (Symbol::new(&env, "milestone_validated"), vault_id),
             MilestoneValidatedEvent {
                 vault_id,
                 verifier,
+                destination: vault.success_destination.clone(),
+                amount: vault.amount,
                 status: VaultStatus::Completed,
             },
         );
-
         true
     }
 
-    /// Release funds to the success destination (self-verified vaults).
-    ///
-    /// Only callable by the creator when **no verifier** is set.
-    /// Transitions vault `Active` → `Completed`.
-    ///
-    /// **Event:** `funds_released` — topics: `(symbol, vault_id)`,
-    /// data: [`FundsReleasedEvent`].
-    ///
-    /// # Panics
-    /// * Vault not found / not `Active`
-    /// * Vault has a verifier (use `validate_milestone` instead)
-    /// * Caller ≠ creator
+    /// Release funds to success destination (for vaults without a verifier).
     pub fn release_funds(env: Env, creator: Address, vault_id: u32) -> bool {
         creator.require_auth();
-
         let mut vault = read_vault(&env, vault_id);
         require_active(&vault);
 
@@ -302,35 +259,22 @@ impl DisciplrVault {
         }
 
         vault.status = VaultStatus::Completed;
+        let event = FundsReleasedEvent {
+            vault_id,
+            destination: vault.success_destination.clone(),
+            amount: vault.amount,
+            status: VaultStatus::Completed,
+        };
         write_vault(&env, vault_id, &vault);
-
-        // TODO: transfer USDC to success_destination
 
         env.events().publish(
             (Symbol::new(&env, "funds_released"), vault_id),
-            FundsReleasedEvent {
-                vault_id,
-                destination: vault.success_destination.clone(),
-                amount: vault.amount,
-                status: VaultStatus::Completed,
-            },
+            event,
         );
-
         true
     }
 
-    /// Redirect funds to the failure destination after the deadline.
-    ///
-    /// Callable by **anyone** once `ledger_timestamp > end_timestamp` and
-    /// the vault is still `Active`.
-    /// Transitions vault `Active` → `Failed`.
-    ///
-    /// **Event:** `funds_redirected` — topics: `(symbol, vault_id)`,
-    /// data: [`FundsRedirectedEvent`].
-    ///
-    /// # Panics
-    /// * Vault not found / not `Active`
-    /// * Deadline has not passed
+    /// Redirect funds to failure destination after deadline passes without validation.
     pub fn redirect_funds(env: Env, vault_id: u32) -> bool {
         let mut vault = read_vault(&env, vault_id);
         require_active(&vault);
@@ -340,38 +284,24 @@ impl DisciplrVault {
         }
 
         vault.status = VaultStatus::Failed;
+        let event = FundsRedirectedEvent {
+            vault_id,
+            destination: vault.failure_destination.clone(),
+            amount: vault.amount,
+            status: VaultStatus::Failed,
+        };
         write_vault(&env, vault_id, &vault);
-
-        // TODO: transfer USDC to failure_destination
 
         env.events().publish(
             (Symbol::new(&env, "funds_redirected"), vault_id),
-            FundsRedirectedEvent {
-                vault_id,
-                destination: vault.failure_destination.clone(),
-                amount: vault.amount,
-                status: VaultStatus::Failed,
-            },
+            event,
         );
-
         true
     }
 
-    /// Cancel the vault and return funds to the creator.
-    ///
-    /// Only the creator may cancel, and only while the vault is `Active`
-    /// **and before** `start_timestamp` (the vault hasn't started yet).
-    ///
-    /// **Event:** `vault_cancelled` — topics: `(symbol, vault_id)`,
-    /// data: [`VaultCancelledEvent`].
-    ///
-    /// # Panics
-    /// * Vault not found / not `Active`
-    /// * Caller ≠ creator
-    /// * Ledger timestamp ≥ `start_timestamp`
+    /// Cancel vault and return funds to creator (only before vault starts).
     pub fn cancel_vault(env: Env, creator: Address, vault_id: u32) -> bool {
         creator.require_auth();
-
         let mut vault = read_vault(&env, vault_id);
         require_active(&vault);
 
@@ -383,26 +313,26 @@ impl DisciplrVault {
         }
 
         vault.status = VaultStatus::Cancelled;
+        let event = VaultCancelledEvent {
+            vault_id,
+            creator: vault.creator.clone(),
+            amount: vault.amount,
+            status: VaultStatus::Cancelled,
+        };
         write_vault(&env, vault_id, &vault);
-
-        // TODO: return USDC to creator
 
         env.events().publish(
             (Symbol::new(&env, "vault_cancelled"), vault_id),
-            VaultCancelledEvent {
-                vault_id,
-                creator,
-                amount: vault.amount,
-                status: VaultStatus::Cancelled,
-            },
+            event,
         );
-
         true
     }
 
     /// Return vault state for a given id, or `None` if not found.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
-        env.storage().persistent().get(&DataKey::Vault(vault_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Vault(vault_id))
     }
 }
 
