@@ -33,7 +33,12 @@ pub enum Error {
     InvalidAmount = 7,
     /// start_timestamp must be strictly less than end_timestamp.
     InvalidTimestamps = 8,
+    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
+    DurationTooLong = 9,
 }
+
+/// Maximum allowed vault duration: 365 days in seconds.
+const MAX_VAULT_DURATION: u64 = 31_536_000;
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -127,6 +132,10 @@ impl DisciplrVault {
 
         if end_timestamp <= start_timestamp {
             return Err(Error::InvalidTimestamps);
+        }
+
+        if end_timestamp - start_timestamp > MAX_VAULT_DURATION {
+            return Err(Error::DurationTooLong);
         }
 
         // Pull USDC from creator into this contract.
@@ -544,6 +553,56 @@ mod tests {
         assert!(
             result.is_err(),
             "create_vault with start >= end should return InvalidTimestamps"
+        );
+    }
+
+    #[test]
+    fn test_create_vault_rejects_duration_above_max() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let start = 1_000u64;
+        let end = start + MAX_VAULT_DURATION + 1; // 1 second over the limit
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &start,
+            &end,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+        assert!(
+            result.is_err(),
+            "create_vault with duration > MAX_VAULT_DURATION should return DurationTooLong"
+        );
+    }
+
+    #[test]
+    fn test_create_vault_accepts_duration_at_max() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let start = 1_000u64;
+        let end = start + MAX_VAULT_DURATION; // exactly at the limit
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &start,
+            &end,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+        assert!(
+            result.is_ok(),
+            "create_vault with duration == MAX_VAULT_DURATION should succeed"
         );
     }
 
