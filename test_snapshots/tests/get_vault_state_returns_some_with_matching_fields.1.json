@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 5,
     "nonce": 0
   },
   "auth": [
@@ -20,24 +20,26 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 100000000
+                    "lo": 1000
                   }
                 },
                 {
-                  "u64": 1000
+                  "u64": 1700000000
                 },
                 {
-                  "u64": 2000
+                  "u64": 1700086400
                 },
                 {
-                  "bytes": "abababababababababababababababababababababababababababababababab"
+                  "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                 },
-                "void",
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 }
               ]
             }
@@ -45,7 +47,8 @@
           "sub_invocations": []
         }
       ]
-    ]
+    ],
+    []
   ],
   "ledger": {
     "protocol_version": 22,
@@ -101,7 +104,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 100000000
+                          "lo": 1000
                         }
                       }
                     },
@@ -118,7 +121,7 @@
                         "symbol": "end_timestamp"
                       },
                       "val": {
-                        "u64": 2000
+                        "u64": 1700086400
                       }
                     },
                     {
@@ -126,7 +129,7 @@
                         "symbol": "failure_destination"
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                       }
                     },
                     {
@@ -134,7 +137,7 @@
                         "symbol": "milestone_hash"
                       },
                       "val": {
-                        "bytes": "abababababababababababababababababababababababababababababababab"
+                        "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                       }
                     },
                     {
@@ -142,7 +145,7 @@
                         "symbol": "start_timestamp"
                       },
                       "val": {
-                        "u64": 1000
+                        "u64": 1700000000
                       }
                     },
                     {
@@ -158,14 +161,16 @@
                         "symbol": "success_destination"
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                       }
                     },
                     {
                       "key": {
                         "symbol": "verifier"
                       },
-                      "val": "void"
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      }
                     }
                   ]
                 }
@@ -277,103 +282,5 @@
       ]
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "vault_created"
-              },
-              {
-                "u32": 0
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "amount"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 100000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "creator"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "end_timestamp"
-                  },
-                  "val": {
-                    "u64": 2000
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "failure_destination"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "milestone_hash"
-                  },
-                  "val": {
-                    "bytes": "abababababababababababababababababababababababababababababababab"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "start_timestamp"
-                  },
-                  "val": {
-                    "u64": 1000
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "status"
-                  },
-                  "val": {
-                    "u32": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "success_destination"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "verifier"
-                  },
-                  "val": "void"
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    }
-  ]
+  "events": []
 }
