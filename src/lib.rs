@@ -1,4 +1,4 @@
-   #![no_std]
+#![no_std]
 #![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
@@ -912,11 +912,11 @@ mod tests {
     #[test]
     fn test_validate_milestone_wrong_verifier_rejected() {
         let setup = TestSetup::new();
-        let client = setup.client();
+        let _client = setup.client();
 
         setup.env.ledger().set_timestamp(setup.start_timestamp);
         // Vault has setup.verifier as the designated verifier.
-        let vault_id = setup.create_default_vault();
+        let _vault_id = setup.create_default_vault();
 
         setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
 
