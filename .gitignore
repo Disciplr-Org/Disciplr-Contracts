@@ -2,8 +2,3 @@
 Cargo.lock
 .DS_Store
 *.wasm
-<<<<<<< HEAD
-test_snapshots/
-=======
-**/test_snapshots
->>>>>>> main

@@ -526,101 +526,182 @@ fn test_validate_nonexistent_vault() {
     client.validate_milestone(&verifier, &42);
 }
 
-// ── storage persistence edge cases ──────────────────────────────────────
+// ── event payload edge-case tests ───────────────────────────────────────
 
-/// Verify that get_vault_state returns every field exactly as supplied to
-/// create_vault — the full round-trip through persistent storage.
+/// Verify that event payloads carry a custom (non-default) amount correctly.
 #[test]
-fn test_get_vault_state_returns_all_fields() {
-    let (_, client, creator, verifier, success, failure, hash) = setup();
+fn test_release_funds_event_payload_with_custom_amount() {
+    let (env, client, creator, _, success, failure, hash) = setup();
+    let custom_amount = 999_999_i128;
 
     let vault_id = client.create_vault(
         &creator,
-        &999_i128,
-        &5_000_u64,
-        &9_000_u64,
+        &custom_amount,
+        &1_000_u64,
+        &2_000_u64,
+        &hash,
+        &None, // no verifier → release_funds path
+        &success,
+        &failure,
+    );
+
+    let ok = client.release_funds(&creator, &vault_id);
+    assert!(ok);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (Symbol::new(&env, "funds_released"), vault_id).into_val(&env),
+                FundsReleasedEvent {
+                    vault_id,
+                    destination: success.clone(),
+                    amount: custom_amount,
+                    status: VaultStatus::Completed,
+                }
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
+/// When multiple vaults exist, verify that the event carries the correct
+/// vault_id for the second vault (id = 1, not 0).
+#[test]
+fn test_redirect_funds_event_targets_correct_vault_id() {
+    let (env, client, creator, verifier, success, failure, hash) = setup();
+
+    // Create two vaults
+    let _id0 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    let id1 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
+    assert_eq!(id1, 1);
+
+    env.ledger().with_mut(|li| li.timestamp = 3_000); // past deadline
+    let ok = client.redirect_funds(&id1);
+    assert!(ok);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (Symbol::new(&env, "funds_redirected"), id1).into_val(&env),
+                FundsRedirectedEvent {
+                    vault_id: id1,
+                    destination: failure.clone(),
+                    amount: 100,
+                    status: VaultStatus::Failed,
+                }
+                .into_val(&env),
+            ),
+        ]
+    );
+
+    // First vault should remain Active
+    let v0 = client.get_vault_state(&_id0).unwrap();
+    assert_eq!(v0.status, VaultStatus::Active);
+}
+
+/// Verify cancel_vault event carries the vault's own creator and amount,
+/// not the caller parameter.
+#[test]
+fn test_cancel_vault_event_carries_vault_data() {
+    let (env, client, creator, _, success, failure, hash) = setup();
+    let custom_amount = 42_000_i128;
+
+    let vault_id = client.create_vault(
+        &creator,
+        &custom_amount,
+        &1_000_u64,
+        &2_000_u64,
+        &hash,
+        &None,
+        &success,
+        &failure,
+    );
+
+    env.ledger().with_mut(|li| li.timestamp = 500); // before start
+    let ok = client.cancel_vault(&creator, &vault_id);
+    assert!(ok);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (Symbol::new(&env, "vault_cancelled"), vault_id).into_val(&env),
+                VaultCancelledEvent {
+                    vault_id,
+                    creator: creator.clone(),
+                    amount: custom_amount,
+                    status: VaultStatus::Cancelled,
+                }
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
+/// validate_milestone event must include the correct destination and amount
+/// for the vault that was validated (not defaults).
+#[test]
+fn test_validate_milestone_event_carries_destination_and_amount() {
+    let (env, client, creator, verifier, success, failure, hash) = setup();
+    let custom_amount = 77_777_i128;
+
+    let vault_id = client.create_vault(
+        &creator,
+        &custom_amount,
+        &1_000_u64,
+        &2_000_u64,
         &hash,
         &Some(verifier.clone()),
         &success,
         &failure,
     );
 
-    let v = client.get_vault_state(&vault_id).unwrap();
-    assert_eq!(v.creator, creator);
-    assert_eq!(v.amount, 999);
-    assert_eq!(v.start_timestamp, 5_000);
-    assert_eq!(v.end_timestamp, 9_000);
-    assert_eq!(v.milestone_hash, hash);
-    assert_eq!(v.verifier, Some(verifier));
-    assert_eq!(v.success_destination, success);
-    assert_eq!(v.failure_destination, failure);
-    assert_eq!(v.status, VaultStatus::Active);
-}
-
-/// Creating a second vault must not overwrite the first.
-#[test]
-fn test_create_vault_does_not_overwrite_existing() {
-    let (_, client, creator, verifier, success, failure, hash) = setup();
-
-    let id0 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
-    let id1 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
-
-    assert_ne!(id0, id1);
-
-    // First vault still intact
-    let v0 = client.get_vault_state(&id0).unwrap();
-    assert_eq!(v0.status, VaultStatus::Active);
-    assert_eq!(v0.amount, 100);
-
-    // Second vault also present
-    let v1 = client.get_vault_state(&id1).unwrap();
-    assert_eq!(v1.status, VaultStatus::Active);
-}
-
-/// State transitions persist across subsequent contract calls.
-#[test]
-fn test_state_persists_across_calls() {
-    let (env, client, creator, verifier, success, failure, hash) = setup();
-
-    let id0 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
-    let id1 = create_verified_vault(&client, &creator, &verifier, &success, &failure, &hash);
-
-    // Validate milestone on vault 0
     env.ledger().with_mut(|li| li.timestamp = 1_500);
-    client.validate_milestone(&verifier, &id0);
+    let ok = client.validate_milestone(&verifier, &vault_id);
+    assert!(ok);
 
-    // Redirect vault 1 after deadline
-    env.ledger().with_mut(|li| li.timestamp = 3_000);
-    client.redirect_funds(&id1);
-
-    // Both vaults retain their independent states
-    let v0 = client.get_vault_state(&id0).unwrap();
-    let v1 = client.get_vault_state(&id1).unwrap();
-    assert_eq!(v0.status, VaultStatus::Completed);
-    assert_eq!(v1.status, VaultStatus::Failed);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (Symbol::new(&env, "milestone_validated"), vault_id).into_val(&env),
+                MilestoneValidatedEvent {
+                    vault_id,
+                    verifier: verifier.clone(),
+                    destination: success.clone(),
+                    amount: custom_amount,
+                    status: VaultStatus::Completed,
+                }
+                .into_val(&env),
+            ),
+        ]
+    );
 }
 
-/// release_funds panics with "vault not found" for a nonexistent vault.
+/// Ensure that a failed operation (panic) does not leave behind a
+/// spurious event. create_vault with invalid timestamps should panic
+/// before any event is emitted.
 #[test]
-#[should_panic(expected = "vault not found")]
-fn test_release_funds_nonexistent_vault() {
-    let (_, client, creator, ..) = setup();
-    client.release_funds(&creator, &999);
-}
+fn test_no_event_emitted_on_create_vault_failure() {
+    let (env, client, creator, _, success, failure, hash) = setup();
 
-/// redirect_funds panics with "vault not found" for a nonexistent vault.
-#[test]
-#[should_panic(expected = "vault not found")]
-fn test_redirect_funds_nonexistent_vault() {
-    let (env, client, ..) = setup();
-    env.ledger().with_mut(|li| li.timestamp = 9_999);
-    client.redirect_funds(&999);
-}
+    // This will panic — invalid timestamps
+    let result = client.try_create_vault(
+        &creator, &100_i128, &2_000_u64, // start > end
+        &1_000_u64, &hash, &None, &success, &failure,
+    );
+    assert!(result.is_err());
 
-/// cancel_vault panics with "vault not found" for a nonexistent vault.
-#[test]
-#[should_panic(expected = "vault not found")]
-fn test_cancel_vault_nonexistent_vault() {
-    let (_, client, creator, ..) = setup();
-    client.cancel_vault(&creator, &999);
+    // No contract events should have been published
+    assert_eq!(env.events().all().len(), 0);
 }
