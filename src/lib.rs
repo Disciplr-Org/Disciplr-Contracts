@@ -1,14 +1,7 @@
- #![no_std]
+#![no_std]
 
 use soroban_sdk::{
-    contract,
-    contractimpl,
-    contracttype,
-    contracterror,
-    panic_with_error,
-    Address,
-    BytesN,
-    Env,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
     Symbol,
 };
 
@@ -163,10 +156,8 @@ impl DisciplrVault {
             .persistent()
             .set(&DataKey::VaultCount, &(vault_id + 1));
 
-        env.events().publish(
-            (Symbol::new(&env, "vault_created"), vault_id),
-            vault,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "vault_created"), vault_id), vault);
 
         vault_id
     }
@@ -234,10 +225,8 @@ impl DisciplrVault {
         vault.status = VaultStatus::Completed;
         Self::save_vault(&env, vault_id, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_released"), vault_id),
-            vault_id,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "funds_released"), vault_id), vault_id);
 
         true
     }
@@ -269,10 +258,8 @@ impl DisciplrVault {
         vault.status = VaultStatus::Failed;
         Self::save_vault(&env, vault_id, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_redirected"), vault_id),
-            vault_id,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "funds_redirected"), vault_id), vault_id);
 
         true
     }
@@ -297,10 +284,8 @@ impl DisciplrVault {
         vault.status = VaultStatus::Cancelled;
         Self::save_vault(&env, vault_id, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "vault_cancelled"), vault_id),
-            vault_id,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), vault_id);
 
         true
     }
@@ -308,8 +293,8 @@ impl DisciplrVault {
     /// Return the current on-chain state for a given vault id, or `None` if it
     /// does not exist.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Vault(vault_id))
+        env.storage().persistent().get(&DataKey::Vault(vault_id))
     }
 }
+
+
