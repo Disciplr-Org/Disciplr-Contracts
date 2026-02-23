@@ -296,4 +296,3 @@ impl DisciplrVault {
         env.storage().persistent().get(&DataKey::Vault(vault_id))
     }
 }
-
