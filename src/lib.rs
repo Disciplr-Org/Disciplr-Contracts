@@ -1,4 +1,5 @@
 #![cfg_attr(not(test), no_std)]
+#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env, Symbol};
 
@@ -36,7 +37,6 @@ pub enum DataKey {
 pub struct DisciplrVault;
 
 #[contractimpl]
-#[allow(clippy::too_many_arguments)]
 impl DisciplrVault {
     /// Create a new productivity vault. Caller must have approved token transfer to this contract.
     pub fn create_vault(
