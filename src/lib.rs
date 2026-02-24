@@ -51,26 +51,39 @@ impl DisciplrVault {
 
          // Enforce amount bounds
         if amount < MIN_AMOUNT {
-            panic!("Amount below minimum allowed");
+            return Err(Error::InvalidAmount);
         }
         if amount > MAX_AMOUNT {
-            panic!("Amount exceeds maximum allowed");
+            return Err(Error::InvalidAmount);
         }
 
         // Reasonable start time (e.g. not too far in past/future)
         let current = env.ledger().timestamp();
-        if start_timestamp < current { panic!("Start cannot be in the past"); }
+        if start_timestamp < current { return Err(Error::InvalidTimestamp); }
 
         // Enforce duration bounds
         if end_timestamp <= start_timestamp {
-            panic!("End timestamp must be after start timestamp");
+            return Err(Error::InvalidTimestamps);
         }
         let duration = end_timestamp - start_timestamp;
         if duration > MAX_VAULT_DURATION {
-            panic!("Vault duration exceeds maximum allowed");
+            return Err(Error::InvalidTimestamp);
         }
-        // TODO: pull USDC from creator to this contract
-        // For now, just store vault metadata (storage key pattern would be used in full impl)
+
+        // Pull USDC from creator into this contract.
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&creator, &env.current_contract_address(), &amount);
+
+        let mut vault_count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::VaultCount)
+            .unwrap_or(0);
+        let vault_id = vault_count;
+        vault_count += 1;
+        env.storage()
+            .instance()
+            .set(&DataKey::VaultCount, &vault_count);
         let vault = ProductivityVault {
             creator: creator.clone(),
             amount,
@@ -82,7 +95,6 @@ impl DisciplrVault {
             failure_destination,
             status: VaultStatus::Active,
         };
-        let vault_id = 0u32; // placeholder; real impl would allocate id and persist
         env.events()
             .publish((Symbol::new(&env, "vault_created"), vault_id), vault);
         vault_id
@@ -121,7 +133,89 @@ impl DisciplrVault {
         None
     }
 
-    // ===== USDC Balance Tests: cancel_vault =====
+    impl TestSetup {
+        fn new() -> Self {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            // Deploy USDC mock token.
+            let usdc_admin = Address::generate(&env);
+            let usdc_token = env.register_stellar_asset_contract_v2(usdc_admin.clone());
+            let usdc_addr = usdc_token.address();
+            let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
+
+            // Actors.
+            let creator = Address::generate(&env);
+            let verifier = Address::generate(&env);
+            let success_dest = Address::generate(&env);
+            let failure_dest = Address::generate(&env);
+
+            // Mint USDC to creator.
+            let amount: i128 = MIN_AMOUNT;
+            usdc_asset.mint(&creator, &amount);
+
+            // Deploy contract.
+            let contract_id = env.register(DisciplrVault, ());
+
+            TestSetup {
+                env,
+                contract_id,
+                usdc_token: usdc_addr,
+                creator,
+                verifier,
+                success_dest,
+                failure_dest,
+                amount,
+                start_timestamp: 100,
+                end_timestamp: 1_000,
+            }
+        }
+
+        fn client(&self) -> DisciplrVaultClient<'_> {
+            DisciplrVaultClient::new(&self.env, &self.contract_id)
+        }
+
+        fn usdc_client(&self) -> TokenClient<'_> {
+            TokenClient::new(&self.env, &self.usdc_token)
+        }
+
+        fn milestone_hash(&self) -> BytesN<32> {
+            BytesN::from_array(&self.env, &[1u8; 32])
+        }
+
+        fn create_default_vault(&self) -> u32 {
+            self.client().create_vault(
+                &self.usdc_token,
+                &self.creator,
+                &self.amount,
+                &self.start_timestamp,
+                &self.end_timestamp,
+                &self.milestone_hash(),
+                &Some(self.verifier.clone()),
+                &self.success_dest,
+                &self.failure_dest,
+            )
+        }
+
+        /// Create vault with verifier = None (only creator can validate).
+        fn create_vault_no_verifier(&self) -> u32 {
+            self.client().create_vault(
+                &self.usdc_token,
+                &self.creator,
+                &self.amount,
+                &self.start_timestamp,
+                &self.end_timestamp,
+                &self.milestone_hash(),
+                &None,
+                &self.success_dest,
+                &self.failure_dest,
+            )
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Upstream Tests (Migrated & Merged)
+    // -----------------------------------------------------------------------
 
     /// Tests that after cancel_vault, the creator's USDC balance is fully restored
     /// by exactly the vault amount, and the contract's balance decreases by the same.
@@ -662,7 +756,7 @@ impl DisciplrVault {
         let failure_destination = Address::generate(&env);
         let verifier = Address::generate(&env);
         let milestone_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let amount = 1_000_000i128;
+        let amount = MIN_AMOUNT;
         let start_timestamp = 1_000_000u64;
         let end_timestamp = 2_000_000u64;
 

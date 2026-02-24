@@ -3,8 +3,7 @@
 extern crate std;
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, BytesN, Env,
+    testutils::{Address as _, Ledger},    token::StellarAssetClient,    Address, BytesN, Env,
 };
 
 use disciplr_vault::{
@@ -15,29 +14,37 @@ use disciplr_vault::{
     MAX_VAULT_DURATION,
 };
 
-fn setup() -> (Env, DisciplrVaultClient<'static>) {
+fn setup() -> (Env, DisciplrVaultClient<'static>, Address, StellarAssetClient<'static>) {
     let env = Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register(DisciplrVault, ());
     let client = DisciplrVaultClient::new(&env, &contract_id);
 
-    (env, client)
+    let usdc_admin = Address::generate(&env);
+    let usdc_token = env.register_stellar_asset_contract_v2(usdc_admin.clone());
+    let usdc_addr = usdc_token.address();
+    let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
+
+    (env, client, usdc_addr, usdc_asset)
 }
 
 #[test]
 fn test_create_vault_valid_boundary_values() {
-    let (env, client) = setup();
+    let (env, client, usdc, usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
 
     let success = Address::generate(&env);
     let failure = Address::generate(&env);
     let milestone = BytesN::from_array(&env, &[0u8; 32]);
 
     let vault_id = client.create_vault(
+        &usdc,
         &creator,
         &MIN_AMOUNT,
         &now,
@@ -52,14 +59,15 @@ fn test_create_vault_valid_boundary_values() {
 }
 
 #[test]
-#[should_panic(expected = "Amount below minimum allowed")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_amount_below_minimum() {
-    let (env, client) = setup();
+    let (env, client, usdc, _usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
     client.create_vault(
+        &usdc,
         &creator,
         &(MIN_AMOUNT - 1),
         &now,
@@ -72,14 +80,15 @@ fn test_amount_below_minimum() {
 }
 
 #[test]
-#[should_panic(expected = "Amount exceeds maximum allowed")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_amount_above_maximum() {
-    let (env, client) = setup();
+    let (env, client, usdc, _usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
     client.create_vault(
+        &usdc,
         &creator,
         &(MAX_AMOUNT + 1),
         &now,
@@ -92,14 +101,15 @@ fn test_amount_above_maximum() {
 }
 
 #[test]
-#[should_panic(expected = "Vault duration exceeds maximum allowed")]
+#[should_panic(expected = "Error(Contract, #4)")]
 fn test_duration_exceeds_max() {
-    let (env, client) = setup();
+    let (env, client, usdc, _usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
     client.create_vault(
+        &usdc,
         &creator,
         &MIN_AMOUNT,
         &now,
@@ -112,15 +122,16 @@ fn test_duration_exceeds_max() {
 }
 
 #[test]
-#[should_panic(expected = "Start cannot be in the past")]
+#[should_panic(expected = "Error(Contract, #4)")]
 fn test_start_timestamp_in_past() {
-    let (env, client) = setup();
+    let (env, client, usdc, _usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
 
     client.create_vault(
+        &usdc,
         &creator,
         &MIN_AMOUNT,
         &(now - 3_600),
@@ -133,15 +144,16 @@ fn test_start_timestamp_in_past() {
 }
 
 #[test]
-#[should_panic(expected = "End timestamp must be after start timestamp")]
+#[should_panic(expected = "Error(Contract, #8)")]
 fn test_end_before_or_equal_start() {
-    let (env, client) = setup();
+    let (env, client, usdc, _usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
 
     client.create_vault(
+        &usdc,
         &creator,
         &MIN_AMOUNT,
         &(now + 200),
@@ -155,13 +167,16 @@ fn test_end_before_or_equal_start() {
 
 #[test]
 fn test_amount_exactly_max_allowed() {
-    let (env, client) = setup();
+    let (env, client, usdc, usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
 
+    usdc_asset.mint(&creator, &MAX_AMOUNT);
+
     let vault_id = client.create_vault(
+        &usdc,
         &creator,
         &MAX_AMOUNT,
         &now,
@@ -176,14 +191,15 @@ fn test_amount_exactly_max_allowed() {
 }
 
 #[test]
-#[should_panic(expected = "Amount below minimum allowed")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_amount_zero() {
-    let (env, client) = setup();
+    let (env, client, usdc, _usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
     client.create_vault(
+        &usdc,
         &creator,
         &0_i128,
         &now,
@@ -197,13 +213,16 @@ fn test_amount_zero() {
 
 #[test]
 fn test_minimum_valid_duration() {
-    let (env, client) = setup();
+    let (env, client, usdc, usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
 
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
     let vault_id = client.create_vault(
+        &usdc,
         &creator,
         &MIN_AMOUNT,
         &now,
@@ -219,12 +238,15 @@ fn test_minimum_valid_duration() {
 
 #[test]
 fn test_valid_zero_verifier_and_normal_duration() {
-    let (env, client) = setup();
+    let (env, client, usdc, usdc_asset) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
+    usdc_asset.mint(&creator, &5_000_000_000_i128);
+
     client.create_vault(
+        &usdc,
         &creator,
         &5_000_000_000_i128,
         &now,
