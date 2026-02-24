@@ -570,49 +570,44 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Create vault, validate milestone (if required), call release_funds, assert vault status becomes Completed
-    /// and vault amount/success_destination are as expected. Balance assertion to success_destination would be
-    /// added when release_funds performs the actual token transfer.
+    /// After validation (or when release is allowed), release_funds transfers the vault amount
+    /// to success_destination and vault status becomes Completed.
+    /// Steps: create vault → validate milestone (if required) → release_funds → assert balance and status.
     #[test]
     fn test_release_funds_sets_status_completed_and_releases_to_success_destination() {
-        let env = Env::default();
-        let contract_id = env.register(DisciplrVault, ());
-        let client = DisciplrVaultClient::new(&env, &contract_id);
-
-        let creator = Address::generate(&env);
-        let success_dest = Address::generate(&env);
-        let failure_dest = Address::generate(&env);
-
-        let start_time = 1000;
-        let end_time = 2000;
-        let amount = 10_000_i128;
-
-        env.ledger().set_timestamp(start_time);
-        env.mock_all_auths();
+        let setup = TestSetup::new();
+        let client = setup.client();
 
         // 1. Create vault
-        let vault_id = client.create_vault(
-            &creator,
-            &amount,
-            &start_time,
-            &end_time,
-            &BytesN::from_array(&env, &[0u8; 32]),
-            &None, // no verifier required for this path
-            &success_dest,
-            &failure_dest,
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_vault_no_verifier();
+
+        // 2. Validate milestone (required for release before deadline)
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+        let validated = client.validate_milestone(&vault_id);
+        assert!(validated, "validate_milestone must succeed before end time");
+
+        // 3. Call release_funds
+        let released = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(released, "release_funds must succeed after validation");
+
+        // 4. Assert vault status is Completed
+        let vault = client.get_vault_state(&vault_id).expect("vault must exist");
+        assert_eq!(
+            vault.status,
+            VaultStatus::Completed,
+            "vault status must be Completed after release_funds"
         );
+        assert_eq!(vault.amount, setup.amount);
+        assert_eq!(vault.success_destination, setup.success_dest);
 
-        // 2. Call release_funds (vault is Active; no validation step required by current impl)
-        let released = client.release_funds(&vault_id);
-        assert!(released);
-
-        // 3. Assert vault status is Completed
-        let vault = client.get_vault_state(&vault_id).unwrap();
-        assert_eq!(vault.status, VaultStatus::Completed);
-        assert_eq!(vault.amount, amount);
-        assert_eq!(vault.success_destination, success_dest);
-
-        // When release_funds implements actual token transfer, assert success_dest balance increased by amount
+        // 5. Assert success_destination received the vault amount
+        let balance = setup.usdc_client().balance(&setup.success_dest);
+        assert_eq!(
+            balance,
+            setup.amount,
+            "success_destination balance must equal vault amount after release"
+        );
     }
 
     #[test]
