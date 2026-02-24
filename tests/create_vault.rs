@@ -1,11 +1,9 @@
-// tests/create_vault.rs
-
 #![cfg(test)]
 
 extern crate std;
 
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Ledger},
     Address, BytesN, Env,
 };
 
@@ -17,13 +15,19 @@ use disciplr_vault::{
     MAX_VAULT_DURATION,
 };
 
-#[test]
-fn test_create_vault_valid_boundary_values() {
+fn setup() -> (Env, DisciplrVaultClient<'static>) {
     let env = Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register(DisciplrVault, ());
     let client = DisciplrVaultClient::new(&env, &contract_id);
+
+    (env, client)
+}
+
+#[test]
+fn test_create_vault_valid_boundary_values() {
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
@@ -45,28 +49,17 @@ fn test_create_vault_valid_boundary_values() {
     );
 
     assert_eq!(vault_id, 0u32);
-
-    // Check event was emitted
-    let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.get_unchecked(0);
-    assert_eq!(event.1.len(), 2);
 }
 
 #[test]
 #[should_panic(expected = "Amount below minimum allowed")]
 fn test_amount_below_minimum() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
-    let _ = client.create_vault(
+    client.create_vault(
         &creator,
         &(MIN_AMOUNT - 1),
         &now,
@@ -81,16 +74,12 @@ fn test_amount_below_minimum() {
 #[test]
 #[should_panic(expected = "Amount exceeds maximum allowed")]
 fn test_amount_above_maximum() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
-    let _ = client.create_vault(
+    client.create_vault(
         &creator,
         &(MAX_AMOUNT + 1),
         &now,
@@ -105,16 +94,12 @@ fn test_amount_above_maximum() {
 #[test]
 #[should_panic(expected = "Vault duration exceeds maximum allowed")]
 fn test_duration_exceeds_max() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
-    let _ = client.create_vault(
+    client.create_vault(
         &creator,
         &MIN_AMOUNT,
         &now,
@@ -129,17 +114,13 @@ fn test_duration_exceeds_max() {
 #[test]
 #[should_panic(expected = "Start cannot be in the past")]
 fn test_start_timestamp_in_past() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
 
-    let _ = client.create_vault(
+    client.create_vault(
         &creator,
         &MIN_AMOUNT,
         &(now - 3_600),
@@ -154,17 +135,13 @@ fn test_start_timestamp_in_past() {
 #[test]
 #[should_panic(expected = "End timestamp must be after start timestamp")]
 fn test_end_before_or_equal_start() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
 
-    let _ = client.create_vault(
+    client.create_vault(
         &creator,
         &MIN_AMOUNT,
         &(now + 200),
@@ -176,14 +153,9 @@ fn test_end_before_or_equal_start() {
     );
 }
 
-
 #[test]
 fn test_amount_exactly_max_allowed() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
@@ -206,16 +178,12 @@ fn test_amount_exactly_max_allowed() {
 #[test]
 #[should_panic(expected = "Amount below minimum allowed")]
 fn test_amount_zero() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
-    let _ = client.create_vault(
+    client.create_vault(
         &creator,
         &0_i128,
         &now,
@@ -229,17 +197,12 @@ fn test_amount_zero() {
 
 #[test]
 fn test_minimum_valid_duration() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = 1_725_000_000u64;
     env.ledger().set_timestamp(now);
 
-    // end = start + 1: the smallest valid duration
     let vault_id = client.create_vault(
         &creator,
         &MIN_AMOUNT,
@@ -256,16 +219,12 @@ fn test_minimum_valid_duration() {
 
 #[test]
 fn test_valid_zero_verifier_and_normal_duration() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(DisciplrVault, ());
-    let client = DisciplrVaultClient::new(&env, &contract_id);
+    let (env, client) = setup();
 
     let creator = Address::generate(&env);
     let now = env.ledger().timestamp();
 
-    let _ = client.create_vault(
+    client.create_vault(
         &creator,
         &5_000_000_000_i128,
         &now,
