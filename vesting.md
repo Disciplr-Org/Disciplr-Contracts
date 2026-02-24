@@ -1,30 +1,4 @@
-# Disciplr Contracts
-
-Soroban smart contracts for [Disciplr](https://github.com/your-org/Disciplr): programmable time-locked USDC vaults on Stellar.
-
-## What it does
-
-Single contract **disciplr-vault** with:
-
-- **Data model:** `ProductivityVault` (creator, amount, start/end timestamps, milestone hash, optional verifier, success/failure destinations, status).
-- **Status:** `Active`, `Completed`, `Failed`, `Cancelled`.
-- **Methods (stubs):**
-  - `create_vault(...)` — create vault and emit `vault_created` (USDC lock is TODO).
-  - `validate_milestone(vault_id)` — verifier validates milestone (release logic TODO).
-  - `release_funds(vault_id)` — release to success destination (TODO).
-  - `redirect_funds(vault_id)` — redirect to failure destination (TODO).
-  - `cancel_vault(vault_id)` — cancel and return to creator (TODO).
-  - `get_vault_state(vault_id)` — return vault state (returns `Option`; placeholder returns `None`).
-
-This repo is a **basic version**: logic is stubbed and storage is not persisted. Use it as a starting point for full implementation (USDC token integration, persistence, timestamp checks, auth).
-
-## Documentation
-
-For detailed contract documentation, see [vesting.md](vesting.md).
-
----
-
-# Contract Documentation
+# Disciplr Vault Contract Documentation
 
 ## Overview
 
@@ -77,7 +51,7 @@ pub struct ProductivityVault {
     pub verifier: Option<Address>,  // Optional trusted verifier address
     pub success_destination: Address, // Address for fund release on success
     pub failure_destination: Address, // Address for fund redirect on failure
-    pub status: VaultStatus,        // Current lifecycle state of the vault
+    pub status: VaultStatus,        // Current vault status
 }
 ```
 
@@ -132,7 +106,7 @@ pub fn create_vault(
 - `end_timestamp` must be greater than `start_timestamp`
 - USDC transfer must be approved by creator before calling
 
-**Emits:** `vault_created` event
+**Emits:** [`vault_created`](#vault_created) event
 
 ---
 
@@ -154,7 +128,7 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> bool
 - Caller must be the designated verifier (if set)
 - Current timestamp must be before `end_timestamp`
 
-**Emits:** `milestone_validated` event
+**Emits:** [`milestone_validated`](#milestone_validated) event
 
 ---
 
@@ -244,9 +218,25 @@ pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault>
 
 Emitted when a new vault is created.
 
-**Topic:** `("vault_created", vault_id)`
+**Topic:**
+```
+("vault_created", vault_id)
+```
 
-**Data:** Full `ProductivityVault` struct
+**Data:**
+```rust
+ProductivityVault {
+    creator: Address,
+    amount: i128,
+    start_timestamp: u64,
+    end_timestamp: u64,
+    milestone_hash: BytesN<32>,
+    verifier: Option<Address>,
+    success_destination: Address,
+    failure_destination: Address,
+    status: VaultStatus::Active,
+}
+```
 
 ---
 
@@ -254,7 +244,10 @@ Emitted when a new vault is created.
 
 Emitted when a milestone is successfully validated.
 
-**Topic:** `("milestone_validated", vault_id)`
+**Topic:**
+```
+("milestone_validated", vault_id)
+```
 
 **Data:** `()` (empty tuple)
 
@@ -263,41 +256,41 @@ Emitted when a milestone is successfully validated.
 ## Lifecycle
 
 ```
-                    +--------------+
-                    |   CREATED    |
-                    |              |
-                    | create_vault |
-                    +------+-------+
-                           |
-                           v
-                    +--------------+
-         +---------|    ACTIVE    |---------+
-         |         |              |         |
-         |         +--------------+         |
-         |                                |
-         v                                v
-+-----------------+              +---------------------+
-| validate_       |              |  redirect_funds     |
-| milestone()     |              |  (deadline passed)  |
-+--------+--------+              +----------+----------+
-         |                                   |
-         v                                   v
-+-----------------+              +---------------------+
-|   COMPLETED    |              |      FAILED        |
-|                |              |                     |
-+-----------------+              +---------------------+
+                    ┌──────────────┐
+                    │   CREATED    │
+                    │              │
+                    │ create_vault │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+         ┌─────────│    ACTIVE    │─────────┐
+         │         │              │         │
+         │         └──────────────┘         │
+         │                                    │
+         ▼                                    ▼
+┌─────────────────┐              ┌─────────────────────┐
+│ validate_       │              │  redirect_funds     │
+│ milestone()     │              │  (deadline passed)  │
+└────────┬────────┘              └──────────┬──────────┘
+         │                                   │
+         ▼                                   ▼
+┌─────────────────┐              ┌─────────────────────┐
+│   COMPLETED    │              │      FAILED        │
+│                │              │                     │
+└─────────────────┘              └─────────────────────┘
 
-         |
-         v
-+-----------------+
-| cancel_vault()  |
-+--------+--------+
-         |
-         v
-+-----------------+
-|   CANCELLED    |
-|                |
-+-----------------+
+         │
+         ▼
+┌─────────────────┐
+│ cancel_vault()  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   CANCELLED    │
+│                │
+└─────────────────┘
 ```
 
 ---
@@ -462,257 +455,48 @@ match vault_state {
 
 ---
 
-## Tech Stack
+## Testing
 
-- **Rust** (edition 2021)
-- **Soroban SDK** (22.x) for Stellar smart contracts
-- Build target: **WASM** (cdylib)
-
----
-
-## Local Setup
-
-### Prerequisites
-
-- [Rust](https://rustup.rs/) (stable)
-- [Stellar Soroban CLI](https://developers.stellar.org/docs/tools/developer-tools/soroban-cli) (optional, for build/deploy)
-
-### Build
-
-```bash
-# From repo root
-cd disciplr-contracts
-cargo build
-```
-
-WASM build (for deployment):
-
-```bash
-cargo build --target wasm32-unknown-unknown --release
-```
-
-Output: `target/wasm32-unknown-unknown/release/disciplr_vault.wasm`
-
-### Test
+Run the test suite to verify contract functionality:
 
 ```bash
 cargo test
 ```
 
+Expected output should include tests for:
+- Vault creation with valid parameters
+- Vault creation authorization
+- Event emission on vault creation
+- Milestone validation logic
+- Fund release and redirect logic
+- Vault cancellation
+- State retrieval
+
 ---
 
-## Project Layout
+## File Structure
 
 ```
 disciplr-contracts/
 ├── src/
-│   └── lib.rs       # DisciplrVault contract + ProductivityVault type
-├── Cargo.toml
-├── README.md
-└── vesting.md       # Detailed contract documentation
+│   └── lib.rs           # DisciplrVault contract implementation
+├── Cargo.toml           # Project dependencies
+├── README.md            # Project overview
+└── vesting.md           # This documentation
 ```
 
 ---
 
-# Contributors Workflow
+## Related Documentation
 
-We welcome contributions from the community! Please follow this workflow to ensure a smooth collaboration.
-
-## Getting Started
-
-### 1. Fork the Repository
-
-Click the "Fork" button on the GitHub repository to create your own copy.
-
-### 2. Clone Your Fork
-
-```bash
-git clone https://github.com/YOUR_USERNAME/disciplr-contracts.git
-cd disciplr-contracts
-```
-
-### 3. Add Upstream Remote
-
-```bash
-git remote add upstream https://github.com/your-org/disciplr-contracts.git
-```
-
-### 4. Create a Feature Branch
-
-```bash
-git checkout -b feature/your-feature-name
-```
-
-## Making Changes
-
-### Development Process
-
-1. **Keep your fork in sync**: Regularly pull from upstream to stay current
-   ```bash
-   git fetch upstream
-   git checkout main
-   git merge upstream/main
-   ```
-
-2. **Make your changes**: Implement your feature or fix
-
-3. **Write tests**: Aim for 95%+ test coverage
-   ```bash
-   # Add tests to src/lib.rs
-   cargo test
-   ```
-
-4. **Build and verify**:
-   ```bash
-   cargo build
-   cargo build --target wasm32-unknown-unknown --release
-   ```
-
-### Code Style
-
-- Follow standard Rust conventions
-- Use meaningful variable and function names
-- Add comments for complex logic
-- Document public functions with doc comments
-
-### Commit Messages
-
-Use clear, descriptive commit messages:
-
-```
-type: short description
-
-Detailed description of changes.
-
-Fixes #issue-number
-```
-
-Types:
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation
-- `test`: Adding tests
-- `refactor`: Code restructuring
-- `chore`: Maintenance tasks
-
-Example:
-```
-feat: add milestone validation logic
-
-- Implement validate_milestone() with verifier authorization
-- Add timestamp checks to prevent late validations
-- Emit milestone_validated event on success
-
-Fixes #42
-```
-
-## Submitting Changes
-
-### 1. Push Your Branch
-
-```bash
-git push origin feature/your-feature-name
-```
-
-### 2. Create a Pull Request
-
-1. Navigate to your fork on GitHub
-2. Click "Compare & pull request"
-3. Fill in the PR template:
-   - **Title**: Clear description of the change
-   - **Description**: Explain what, why, and how
-   - **Testing**: Document test results
-   - **Screenshots**: If applicable
-
-### 3. PR Review Process
-
-- All PRs require review before merging
-- Address feedback promptly
-- Keep PRs focused and atomic
-
-## Testing Requirements
-
-Before submitting a PR:
-
-1. **Run all tests**:
-   ```bash
-   cargo test
-   ```
-
-2. **Build for release**:
-   ```bash
-   cargo build --target wasm32-unknown-unknown --release
-   ```
-
-3. **Verify no warnings**:
-   ```bash
-   cargo clippy
-   ```
-
-### Test Coverage
-
-- Aim for 95%+ test coverage
-- Test all public functions
-- Include edge cases
-- Test error conditions
-
-## Security Considerations
-
-When contributing code:
-
-1. **Never commit secrets**: Don't include API keys, passwords, or private keys
-2. **Validate inputs**: Always validate user inputs
-3. **Follow best practices**: 
-   - Use `require_auth()` for authorization
-   - Check for overflow/underflow
-   - Avoid reentrancy vulnerabilities
-4. **Document security implications**: Add security notes in PR description
-
-## Reporting Issues
-
-Found a bug or have a feature request?
-
-1. **Search existing issues** to avoid duplicates
-2. **Create a new issue** with:
-   - Clear title
-   - Detailed description
-   - Steps to reproduce (for bugs)
-   - Expected vs actual behavior
-
-## Code of Conduct
-
-- Be respectful and inclusive
-- Welcome newcomers
-- Provide constructive feedback
-- Focus on what is best for the community
+- [Soroban SDK Documentation](https://developers.stellar.org/docs/smart-contracts)
+- [Stellar Smart Contracts Guide](https://developers.stellar.org/docs/smart-contracts/getting-started)
+- [Token Interface (Soroban)](https://developers.stellar.org/docs/tokens)
 
 ---
 
-## Merging into a Remote
+## Changelog
 
-This directory is a separate git repo. To push to your own remote:
-
-```bash
-cd disciplr-contracts
-git remote add origin <your-disciplr-contracts-repo-url>
-git push -u origin main
-```
-
-## Security and Testing
-
-### Security Notes
-
-- **Timestamp Validation**: Milestone validation is strictly prohibited once the ledger timestamp reaches or exceeds `end_timestamp`. This prevents "late" validations and ensures the time-lock is honored.
-- **Authentication**: `validate_milestone` requires authorization from the verifier (if specified) or the creator. This ensures only authorized parties can progress the vault state.
-- **State Integrity**: Operations like `validate_milestone`, `release_funds`, and `cancel_vault` check the current `status` (must be `Active`) to prevent double-spending or invalid state transitions.
-
-### Test Coverage
-
-The project includes unit tests for core logic, specifically:
-- Verification of milestone rejection after `end_timestamp`.
-- Verification of successful milestone validation before `end_timestamp`.
-
-To run tests:
-```bash
-cargo test
-```
+| Version | Changes |
+|---------|---------|
+| 0.1.0 | Initial release with basic vault structure, stubbed implementations |
