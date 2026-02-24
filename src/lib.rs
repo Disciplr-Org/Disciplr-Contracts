@@ -604,8 +604,7 @@ mod tests {
         // 5. Assert success_destination received the vault amount
         let balance = setup.usdc_client().balance(&setup.success_dest);
         assert_eq!(
-            balance,
-            setup.amount,
+            balance, setup.amount,
             "success_destination balance must equal vault amount after release"
         );
     }
