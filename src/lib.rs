@@ -99,11 +99,11 @@ pub struct DisciplrVault;
 #[contractimpl]
 impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
-    /// 
+    ///
     /// # Validation Rules
     /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
-    /// 
+    ///
     /// # Prerequisites
     /// Creator must have sufficient USDC balance and authorize the transaction.
     pub fn create_vault(
@@ -1184,7 +1184,9 @@ mod test {
         env: &Env,
         admin: &Address,
     ) -> (Address, StellarAssetClient<'a>, TokenClient<'a>) {
-        let contract_address = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let contract_address = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
         (
             contract_address.clone(),
             StellarAssetClient::new(env, &contract_address),
@@ -1233,7 +1235,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "amount must be positive")]
+    #[should_panic(expected = "Error(Contract, #7)")]
     fn test_create_vault_zero_amount() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1260,7 +1262,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "amount must be positive")]
+    #[should_panic(expected = "Error(Contract, #7)")]
     fn test_create_vault_negative_amount() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1287,7 +1289,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "end_timestamp must be after start_timestamp")]
+    #[should_panic(expected = "Error(Contract, #8)")]
     fn test_create_vault_invalid_timestamps() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1314,7 +1316,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "end_timestamp must be after start_timestamp")]
+    #[should_panic(expected = "Error(Contract, #8)")]
     fn test_create_vault_equal_timestamps() {
         let env = Env::default();
         env.mock_all_auths();
