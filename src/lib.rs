@@ -626,17 +626,6 @@ mod tests {
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Completed);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate std; // no_std crate — explicitly link std for the test harness
-
-    use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events},
-        Address, BytesN, Env, IntoVal, Symbol, TryIntoVal,
-    };
 
     #[test]
     fn test_release_funds_rejects_non_existent_vault() {
