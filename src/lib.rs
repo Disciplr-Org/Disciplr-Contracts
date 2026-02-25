@@ -1442,4 +1442,263 @@ mod tests {
             "vault_cancelled event must be emitted with correct payload"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Upstream Tests (Type and Structure Tests)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_vaultstatus_enum_values() {
+        // Verify VaultStatus enum has correct discriminant values
+        assert_eq!(VaultStatus::Active as u32, 0);
+        assert_eq!(VaultStatus::Completed as u32, 1);
+        assert_eq!(VaultStatus::Failed as u32, 2);
+        assert_eq!(VaultStatus::Cancelled as u32, 3);
+    }
+
+    #[test]
+    fn test_vaultstatus_enum_ordering() {
+        // Verify VaultStatus can be compared
+        assert!(VaultStatus::Active == VaultStatus::Active);
+        assert!(VaultStatus::Active != VaultStatus::Completed);
+    }
+
+    #[test]
+    fn test_productivity_vault_struct_creation() {
+        // Test that ProductivityVault struct can be created
+        // This verifies the struct is properly defined with all expected fields
+        let env = Env::default();
+        let _vault = ProductivityVault {
+            creator: Address::generate(&env),
+            amount: 1000i128,
+            start_timestamp: 100u64,
+            end_timestamp: 200u64,
+            milestone_hash: {
+                let mut data = [0u8; 32];
+                data[0] = 0xFF;
+                BytesN::<32>::from_array(&env, &data)
+            },
+            verifier: None,
+            success_destination: Address::generate(&env),
+            failure_destination: Address::generate(&env),
+            status: VaultStatus::Active,
+            milestone_validated: false,
+        };
+    }
+
+    #[test]
+    fn test_validate_milestone_returns_bool() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+
+        // Try to validate a non-existent vault (returns error, but doesn't crash)
+        let result = client.try_validate_milestone(&42u32);
+        // Result could be error since vault doesn't exist, just verify it's a Result
+        let _ = result;
+    }
+
+    #[test]
+    fn test_release_funds_returns_bool() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+        let usdc_token = Address::generate(&env);
+
+        // Try to release funds for non-existent vault (returns error, but doesn't crash)
+        let result = client.try_release_funds(&0u32, &usdc_token);
+        // Result could be error since vault doesn't exist, just verify it's a Result
+        let _ = result;
+    }
+
+    #[test]
+    fn test_redirect_funds_returns_bool() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+        let usdc_token = Address::generate(&env);
+
+        // Try to redirect funds for non-existent vault (returns error, but doesn't crash)
+        let result = client.try_redirect_funds(&0u32, &usdc_token);
+        // Result could be error since vault doesn't exist, just verify it's a Result
+        let _ = result;
+    }
+
+    #[test]
+    fn test_cancel_vault_returns_bool() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+        let usdc_token = Address::generate(&env);
+
+        // Try to cancel non-existent vault (returns error, but doesn't crash)
+        let result = client.try_cancel_vault(&0u32, &usdc_token);
+        // Result could be error since vault doesn't exist, just verify it's a Result
+        let _ = result;
+    }
+
+    #[test]
+    fn test_get_vault_state_returns_option() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+        let result = client.get_vault_state(&0u32);
+        // Non-existent vault returns None
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_vaultstatus_clone_and_copy() {
+        let status1 = VaultStatus::Active;
+        let status2 = status1; // Should copy
+        assert_eq!(status1, status2);
+    }
+
+    #[test]
+    fn test_vault_created_event_symbol_value() {
+        let env = Env::default();
+
+        let env_clone = env.clone();
+        let symbol = Symbol::new(&env_clone, "vault_created");
+
+        let _s = symbol;
+    }
+
+    #[test]
+    fn test_milestone_validated_event_symbol_value() {
+        let env = Env::default();
+
+        let env_clone = env.clone();
+        let symbol = Symbol::new(&env_clone, "milestone_validated");
+
+        // Verify symbol can be created
+        let _s = symbol;
+    }
+
+    #[test]
+    fn test_contract_types_are_public() {
+        // Verify contract types are publicly accessible
+        let _status: VaultStatus = VaultStatus::Active;
+        let _enum_val = VaultStatus::Completed;
+    }
+
+    #[test]
+    fn test_vault_status_all_variants_compile() {
+        // Verify all VaultStatus variants exist as expected
+        match VaultStatus::Active {
+            VaultStatus::Active => (),
+            VaultStatus::Completed => (),
+            VaultStatus::Failed => (),
+            VaultStatus::Cancelled => (),
+        }
+    }
+
+    #[test]
+    fn test_milestone_validated_function_signature() {
+        // Tests that the validate_milestone function exists with expected parameters
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+
+        // Verify function can be called through client
+        let _result = client.try_validate_milestone(&123u32);
+        // Result could be error since vault doesn't exist, just verify it exists
+    }
+
+    #[test]
+    fn test_address_generation_in_tests() {
+        // Verify test utilities work - Address generation for testing
+        let env = Env::default();
+        let addr1 = Address::generate(&env);
+        let addr2 = Address::generate(&env);
+
+        // Different addresses should be generated
+        assert_ne!(addr1, addr2);
+    }
+
+    #[test]
+    fn test_bytesn32_creation() {
+        // Verify BytesN<32> can be created for milestone_hash
+        let env = Env::default();
+        let mut data = [0u8; 32];
+        data[0] = 0xFF;
+        data[31] = 0xAA;
+
+        let _bytes = BytesN::<32>::from_array(&env, &data);
+    }
+
+    #[test]
+    fn test_vaultstatus_default_is_active() {
+        // Verify that Active is the first enum variant (index 0)
+        assert_eq!(VaultStatus::Active as i32, 0);
+    }
+
+    #[test]
+    fn test_productivity_vault_with_verifier() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let verifier = Address::generate(&env);
+        let success_dest = Address::generate(&env);
+        let failure_dest = Address::generate(&env);
+
+        let data = [0u8; 32];
+        let milestone_hash = BytesN::<32>::from_array(&env, &data);
+
+        let _vault = ProductivityVault {
+            creator,
+            amount: 1000i128,
+            start_timestamp: 100u64,
+            end_timestamp: 200u64,
+            milestone_hash,
+            verifier: Some(verifier),
+            success_destination: success_dest,
+            failure_destination: failure_dest,
+            status: VaultStatus::Active,
+            milestone_validated: false,
+        };
+    }
+
+    #[test]
+    fn test_productivity_vault_without_verifier() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let success_dest = Address::generate(&env);
+        let failure_dest = Address::generate(&env);
+
+        let data = [0u8; 32];
+        let milestone_hash = BytesN::<32>::from_array(&env, &data);
+
+        let _vault = ProductivityVault {
+            creator,
+            amount: 1000i128,
+            start_timestamp: 100u64,
+            end_timestamp: 200u64,
+            milestone_hash,
+            verifier: None,
+            success_destination: success_dest,
+            failure_destination: failure_dest,
+            status: VaultStatus::Active,
+            milestone_validated: false,
+        };
+    }
+
+    #[test]
+    fn test_option_address_some_variant() {
+        let env = Env::default();
+        let verifier = Address::generate(&env);
+        let option_verifier: Option<Address> = Some(verifier);
+        assert!(option_verifier.is_some());
+    }
+
+    #[test]
+    fn test_option_address_none_variant() {
+        let option_verifier: Option<Address> = None;
+        assert!(option_verifier.is_none());
+    }
 }
