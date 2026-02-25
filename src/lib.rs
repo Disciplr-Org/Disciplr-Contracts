@@ -769,6 +769,10 @@ impl DisciplrVault {
         client.cancel_vault(&999u32, &setup.usdc_token);
     }
 
+    /// Issue #44: Test that create_vault accepts verifier == creator
+    /// and that validate_milestone can be called by the creator in that case.
+    #[test]
+    fn test_verifier_same_as_creator() {
     // -----------------------------------------------------------------------
     // Issue #25: release_funds fails when vault is Failed
     // -----------------------------------------------------------------------
@@ -779,6 +783,30 @@ impl DisciplrVault {
         let client = setup.client();
 
         setup.env.ledger().set_timestamp(setup.start_timestamp);
+
+        let vault_id = client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &Some(setup.creator.clone()),
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+
+        setup
+            .env
+            .ledger()
+            .set_timestamp(setup.start_timestamp + 500);
+
+        let result = client.validate_milestone(&vault_id);
+        assert!(result);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert!(vault.milestone_validated);
+        assert_eq!(vault.verifier, Some(setup.creator.clone()));
         let vault_id = setup.create_default_vault();
 
         // Past deadline + redirect → Failed
