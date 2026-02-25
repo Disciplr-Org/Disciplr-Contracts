@@ -181,7 +181,7 @@ impl DisciplrVault {
     /// Verifier (or authorized party) validates milestone completion.
     ///
     /// # Security Notes
-    /// - **Trust Model**: The contract relies entirely on the verifier (if set) or creator to 
+    /// - **Trust Model**: The contract relies entirely on the verifier (if set) or creator to
     ///   attest to off-chain milestone completion.
     /// - **Authorization**: If `verifier` is `Some(addr)`, only that address may call this.
     ///   If `verifier` is `None`, only the `creator` may call it.
