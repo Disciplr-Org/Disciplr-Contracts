@@ -1193,7 +1193,10 @@ mod tests {
 
         // Call validate_milestone — mock_all_auths() lets the verifier's auth pass.
         let result = client.validate_milestone(&vault_id);
-        assert!(result, "validate_milestone should return true when called by verifier");
+        assert!(
+            result,
+            "validate_milestone should return true when called by verifier"
+        );
 
         // Confirm the vault state reflects the validation.
         let vault = client.get_vault_state(&vault_id).unwrap();
