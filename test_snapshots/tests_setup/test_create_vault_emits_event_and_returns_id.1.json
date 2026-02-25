@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 5,
     "nonce": 0
   },
   "auth": [
@@ -20,19 +20,21 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 100000000
+                    "lo": 1000000
                   }
                 },
                 {
-                  "u64": 1000
+                  "u64": 1000000
                 },
                 {
-                  "u64": 2000
+                  "u64": 2000000
                 },
                 {
-                  "bytes": "abababababababababababababababababababababababababababababababab"
+                  "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 },
-                "void",
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
@@ -101,7 +103,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 100000000
+                          "lo": 1000000
                         }
                       }
                     },
@@ -118,7 +120,7 @@
                         "symbol": "end_timestamp"
                       },
                       "val": {
-                        "u64": 2000
+                        "u64": 2000000
                       }
                     },
                     {
@@ -134,7 +136,7 @@
                         "symbol": "milestone_hash"
                       },
                       "val": {
-                        "bytes": "abababababababababababababababababababababababababababababababab"
+                        "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                       }
                     },
                     {
@@ -142,7 +144,7 @@
                         "symbol": "start_timestamp"
                       },
                       "val": {
-                        "u64": 1000
+                        "u64": 1000000
                       }
                     },
                     {
@@ -165,7 +167,9 @@
                       "key": {
                         "symbol": "verifier"
                       },
-                      "val": "void"
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                      }
                     }
                   ]
                 }
@@ -204,6 +208,18 @@
                           "vec": [
                             {
                               "symbol": "NextVaultId"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VaultCount"
                             }
                           ]
                         },
@@ -302,7 +318,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 100000000
+                      "lo": 1000000
                     }
                   }
                 },
@@ -319,7 +335,7 @@
                     "symbol": "end_timestamp"
                   },
                   "val": {
-                    "u64": 2000
+                    "u64": 2000000
                   }
                 },
                 {
@@ -335,7 +351,7 @@
                     "symbol": "milestone_hash"
                   },
                   "val": {
-                    "bytes": "abababababababababababababababababababababababababababababababab"
+                    "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                   }
                 },
                 {
@@ -343,7 +359,7 @@
                     "symbol": "start_timestamp"
                   },
                   "val": {
-                    "u64": 1000
+                    "u64": 1000000
                   }
                 },
                 {
@@ -366,7 +382,9 @@
                   "key": {
                     "symbol": "verifier"
                   },
-                  "val": "void"
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  }
                 }
               ]
             }

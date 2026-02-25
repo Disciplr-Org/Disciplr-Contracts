@@ -5,6 +5,9 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
 };
 
+/// Upper bound for vault creation amounts to limit pathological transfers.
+const MAX_AMOUNT: i128 = 1_000_000_000_000_000;
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -33,7 +36,12 @@ pub enum Error {
     InvalidAmount = 7,
     /// start_timestamp must be strictly less than end_timestamp.
     InvalidTimestamps = 8,
+    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
+    DurationTooLong = 9,
 }
+
+/// Maximum allowed vault duration in seconds (1 year = 365 days).
+const MAX_VAULT_DURATION: u64 = 31_536_000;
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -192,6 +200,10 @@ impl DisciplrVault {
 
         if end_timestamp <= start_timestamp {
             return Err(Error::InvalidTimestamps);
+        }
+
+        if end_timestamp - start_timestamp > MAX_VAULT_DURATION {
+            return Err(Error::DurationTooLong);
         }
 
         // Pull USDC from creator into this contract.
@@ -694,6 +706,15 @@ mod tests {
         assert_eq!(vault.status, VaultStatus::Active);
     }
 
+    #[test]
+    fn test_validate_milestone_rejects_non_existent_vault() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_validate_milestone(&999u32);
+        assert!(result.is_err());
+    }
+
     /// Issue #14: When verifier is None, only creator may validate. Creator succeeds.
     #[test]
     fn test_validate_milestone_verifier_none_creator_succeeds() {
@@ -784,6 +805,58 @@ mod tests {
             &None,
             &setup.success_dest,
             &setup.failure_dest,
+        );
+    }
+
+    #[test]
+    fn test_create_vault_rejects_duration_above_max() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // MAX_VAULT_DURATION is 31_536_000 seconds (1 year)
+        let start = 1000u64;
+        let end = start + 31_536_001; // 1 second over the limit
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &start,
+            &end,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+        assert!(
+            result.is_err(),
+            "create_vault with duration > MAX_VAULT_DURATION should return DurationTooLong"
+        );
+    }
+
+    #[test]
+    fn test_create_vault_accepts_duration_at_max() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // MAX_VAULT_DURATION is 31_536_000 seconds (1 year)
+        let start = 1000u64;
+        let end = start + 31_536_000; // Exactly at the limit
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &start,
+            &end,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+        assert!(
+            result.is_ok(),
+            "create_vault with duration == MAX_VAULT_DURATION should succeed"
         );
     }
 
@@ -985,6 +1058,99 @@ mod tests {
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Cancelled);
+    }
+
+    /// After `release_funds`, the success destination balance must increase
+    /// by the vault amount and the contract's USDC balance must decrease
+    /// by the same amount.
+    #[test]
+    fn test_release_funds_updates_contract_and_success_balances() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let usdc = setup.usdc_client();
+        let contract_balance_before = usdc.balance(&setup.contract_id);
+        let success_balance_before = usdc.balance(&setup.success_dest);
+
+        // Validate and release
+        client.validate_milestone(&vault_id);
+        client.release_funds(&vault_id, &setup.usdc_token);
+
+        let contract_balance_after = usdc.balance(&setup.contract_id);
+        let success_balance_after = usdc.balance(&setup.success_dest);
+
+        assert_eq!(
+            contract_balance_before - contract_balance_after,
+            setup.amount
+        );
+        assert_eq!(
+            success_balance_after - success_balance_before,
+            setup.amount
+        );
+    }
+
+    /// After `redirect_funds`, the failure destination balance must increase
+    /// by the vault amount and the contract's USDC balance must decrease
+    /// by the same amount.
+    #[test]
+    fn test_redirect_funds_updates_contract_and_failure_balances() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let usdc = setup.usdc_client();
+        let contract_balance_before = usdc.balance(&setup.contract_id);
+        let failure_balance_before = usdc.balance(&setup.failure_dest);
+
+        // Advance past deadline and redirect
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+        client.redirect_funds(&vault_id, &setup.usdc_token);
+
+        let contract_balance_after = usdc.balance(&setup.contract_id);
+        let failure_balance_after = usdc.balance(&setup.failure_dest);
+
+        assert_eq!(
+            contract_balance_before - contract_balance_after,
+            setup.amount
+        );
+        assert_eq!(
+            failure_balance_after - failure_balance_before,
+            setup.amount
+        );
+    }
+
+    /// After `cancel_vault`, the creator balance must increase by the vault
+    /// amount and the contract's USDC balance must decrease by the same amount.
+    #[test]
+    fn test_refund_balance_tracked() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let usdc = setup.usdc_client();
+        let contract_balance_before = usdc.balance(&setup.contract_id);
+        let creator_balance_before = usdc.balance(&setup.creator);
+
+        client.cancel_vault(&vault_id, &setup.usdc_token);
+
+        let contract_balance_after = usdc.balance(&setup.contract_id);
+        let creator_balance_after = usdc.balance(&setup.creator);
+
+        assert_eq!(
+            contract_balance_before - contract_balance_after,
+            setup.amount
+        );
+        assert_eq!(
+            creator_balance_after - creator_balance_before,
+            setup.amount
+        );
     }
 
     // -----------------------------------------------------------------------
