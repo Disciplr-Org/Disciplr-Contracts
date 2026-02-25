@@ -6,6 +6,7 @@ use soroban_sdk::{
 };
 
 /// Upper bound for vault creation amounts to limit pathological transfers.
+#[allow(dead_code)]
 const MAX_AMOUNT: i128 = 1_000_000_000_000_000;
 
 // ---------------------------------------------------------------------------
@@ -1086,10 +1087,7 @@ mod tests {
             contract_balance_before - contract_balance_after,
             setup.amount
         );
-        assert_eq!(
-            success_balance_after - success_balance_before,
-            setup.amount
-        );
+        assert_eq!(success_balance_after - success_balance_before, setup.amount);
     }
 
     /// After `redirect_funds`, the failure destination balance must increase
@@ -1118,10 +1116,7 @@ mod tests {
             contract_balance_before - contract_balance_after,
             setup.amount
         );
-        assert_eq!(
-            failure_balance_after - failure_balance_before,
-            setup.amount
-        );
+        assert_eq!(failure_balance_after - failure_balance_before, setup.amount);
     }
 
     /// After `cancel_vault`, the creator balance must increase by the vault
@@ -1147,10 +1142,7 @@ mod tests {
             contract_balance_before - contract_balance_after,
             setup.amount
         );
-        assert_eq!(
-            creator_balance_after - creator_balance_before,
-            setup.amount
-        );
+        assert_eq!(creator_balance_after - creator_balance_before, setup.amount);
     }
 
     // -----------------------------------------------------------------------
