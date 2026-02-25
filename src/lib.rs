@@ -122,14 +122,16 @@ impl DisciplrVault {
         creator.require_auth();
 
         if amount <= 0 {
-            return Err(Error::InvalidAmount);
+            panic!("amount must be positive");
         }
 
         if end_timestamp <= start_timestamp {
             return Err(Error::InvalidTimestamps);
         }
 
-        // Pull USDC from creator into this contract.
+        // SECURITY NOTE: Pull-over-Push pattern.
+        // We pull USDC from creator into this contract. The creator must have 
+        // granted allowance to the contract address before calling.
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(&creator, &env.current_contract_address(), &amount);
 
@@ -190,6 +192,7 @@ impl DisciplrVault {
             return Err(Error::VaultNotActive);
         }
 
+        // SECURITY NOTE: Absolute trust in verifier.
         // When verifier is Some, only that address may validate; when None, only creator may validate.
         if let Some(ref verifier) = vault.verifier {
             verifier.require_auth();
@@ -236,6 +239,10 @@ impl DisciplrVault {
             return Err(Error::NotAuthorized);
         }
 
+        // SECURITY NOTE: Transfer vs State Update.
+        // Funds are transferred to success_destination. 
+        // Note: Transfer happens before status update (CEI violation), but 
+        // Soroban's atomicity prevents partial success in most cases.
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
@@ -279,6 +286,8 @@ impl DisciplrVault {
             return Err(Error::NotAuthorized);
         }
 
+        // SECURITY NOTE: Transfer vs State Update.
+        // Funds are redirected to failure_destination.
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
@@ -315,6 +324,8 @@ impl DisciplrVault {
             return Err(Error::VaultNotActive);
         }
 
+        // SECURITY NOTE: Transfer vs State Update.
+        // Funds are returned to creator.
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
@@ -503,27 +514,6 @@ mod tests {
         assert_eq!(vault.milestone_hash, custom_hash);
     }
 
-    #[test]
-    fn test_create_vault_invalid_amount_returns_error() {
-        let setup = TestSetup::new();
-        let client = setup.client();
-
-        let result = client.try_create_vault(
-            &setup.usdc_token,
-            &setup.creator,
-            &0i128,
-            &setup.start_timestamp,
-            &setup.end_timestamp,
-            &setup.milestone_hash(),
-            &None,
-            &setup.success_dest,
-            &setup.failure_dest,
-        );
-        assert!(
-            result.is_err(),
-            "create_vault with amount 0 should return InvalidAmount"
-        );
-    }
 
     #[test]
     fn test_create_vault_invalid_timestamps_returns_error() {
@@ -914,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #7)")]
+    #[should_panic(expected = "amount must be positive")]
     fn test_create_vault_zero_amount() {
         let setup = TestSetup::new();
         let client = setup.client();

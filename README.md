@@ -302,53 +302,15 @@ Emitted when a milestone is successfully validated.
 
 ---
 
-## Security Assumptions
+## Security and Trust Model
 
-### Authentication & Authorization
+The Disciplr Vault contract is designed with specific security guarantees and trust assumptions:
 
-1. **Creator Authorization**: The vault creator must authorize transactions via `require_auth()`. This ensures only the creator can initiate vault creation or cancellation.
+- **Verifier Trust**: Designated verifiers have absolute power over milestone validation.
+- **Immutable Destinations**: success/failure destinations cannot be changed once the vault is created.
+- **USDC Address Risk**: The contract does not pin the USDC token address; it must be verified by callers during interaction.
 
-2. **Verifier Role**: An optional verifier can be designated during vault creation. If set, only the verifier can validate milestones. If not set, anyone can validate (which may be useful for decentralized verification).
-
-3. **Destination Addresses**: Once set, success and failure destinations cannot be modified. This prevents fund redirection attacks.
-
-### Timing Constraints
-
-1. **Start Timestamp**: Vault funds are locked from `start_timestamp`. Before this time, the vault exists but is not active.
-
-2. **End Timestamp**: After `end_timestamp`:
-   - If milestone is validated → funds release to success destination
-   - If not validated → funds redirect to failure destination
-
-3. **Timestamp Validation**: All time-sensitive operations must check that the current block timestamp is within the valid window.
-
-### Token Handling
-
-1. **USDC Integration**: The contract expects USDC (or similar token) to be transferred to the contract before vault creation. This requires:
-   - Creator approves token transfer
-   - Contract pulls tokens from creator (via `transfer_from`)
-
-2. **Non-Custodial**: The contract holds tokens in escrow but never has withdrawal authority beyond the defined destination addresses.
-
-### Current Limitations (TODOs)
-
-The following security features are not yet implemented:
-
-- [ ] **Storage Persistence**: Vaults are not persisted between contract calls
-- [ ] **Token Transfer**: Actual USDC transfer logic is not implemented
-- [ ] **Timestamp Validation**: Methods don't validate timestamps
-- [ ] **Verifier Authorization**: No check that caller is the designated verifier
-- [ ] **Reentrancy Protection**: No guards against reentrancy attacks
-- [ ] **Access Control**: Basic auth only; no complex role-based access
-
-### Recommendations for Production
-
-1. **Use Soroban Token Interface**: Implement standard token operations for USDC
-2. **Add Access Control**: Implement `Ownable` pattern for admin functions
-3. **Circuit Breaker**: Add emergency pause functionality
-4. **Upgradeability**: Consider proxy pattern for contract upgrades
-5. **Comprehensive Tests**: Achieve 95%+ test coverage
-6. **External Audits**: Have security experts review before mainnet deployment
+For a comprehensive analysis of the security model, assumptions, and known limitations, please refer to the [detailed security documentation in vesting.md](vesting.md#security-and-trust-model).
 
 ---
 

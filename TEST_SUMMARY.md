@@ -4,12 +4,12 @@
 
 ### Changes Made
 
-1. **Added validation in `create_vault` function** (src/lib.rs:47-49)
+1. **Added validation in `create_vault` function** (src/lib.rs:124-126)
    - Validates that `amount > 0`
    - Panics with message "amount must be positive" if amount is zero or negative
    - This ensures vault creation requires a positive stake amount
 
-2. **Added test case** (src/lib.rs:112-133)
+2. **Added test case** (src/lib.rs:928-944)
    - `test_create_vault_zero_amount`: Tests that creating a vault with amount=0 panics
    - Uses `#[should_panic(expected = "amount must be positive")]` attribute
    - Verifies the contract rejects invalid zero-amount vaults
@@ -20,7 +20,7 @@
 running 1 test
 test tests::test_create_vault_zero_amount - should panic ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.17s
 ```
 
 ### Coverage
