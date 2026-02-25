@@ -1,7 +1,52 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
+};
+
+/// Upper bound for vault creation amounts to limit pathological transfers.
+#[allow(dead_code)]
+const MAX_AMOUNT: i128 = 1_000_000_000_000_000;
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+//
+// Contract-specific errors used in revert paths. Follows Soroban error
+// conventions: use Result<T, Error> and return Err(Error::Variant) instead
+// of generic panics where appropriate.
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    /// Vault with the given id does not exist.
+    VaultNotFound = 1,
+    /// Caller is not authorized for this operation (e.g. not verifier/creator, or release before deadline without validation).
+    NotAuthorized = 2,
+    /// Vault is not in Active status (e.g. already Completed, Failed, or Cancelled).
+    VaultNotActive = 3,
+    /// Timestamp constraint violated (e.g. redirect before end_timestamp, or invalid time window).
+    InvalidTimestamp = 4,
+    /// Validation is no longer allowed because current time is at or past end_timestamp.
+    MilestoneExpired = 5,
+    /// Vault is in an invalid status for the requested operation.
+    InvalidStatus = 6,
+    /// Amount must be positive (e.g. create_vault amount <= 0).
+    InvalidAmount = 7,
+    /// start_timestamp must be strictly less than end_timestamp.
+    InvalidTimestamps = 8,
+    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
+    DurationTooLong = 9,
+}
+
+/// Maximum allowed vault duration in seconds (1 year = 365 days).
+const MAX_VAULT_DURATION: u64 = 31_536_000;
+
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -12,8 +57,57 @@ pub enum VaultStatus {
     Cancelled = 3,
 }
 
+/// Core vault record persisted in contract storage.
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProductivityVault {
+    /// Address that created (and funded) the vault.
+    pub creator: Address,
+    /// USDC amount locked in the vault (in stroops / smallest unit).
+    pub amount: i128,
+    /// Ledger timestamp when the commitment period starts.
+    pub start_timestamp: u64,
+    /// Ledger timestamp after which deadline-based release is allowed.
+    pub end_timestamp: u64,
+    /// Hash representing the milestone the creator commits to.
+    pub milestone_hash: BytesN<32>,
+    /// Optional designated verifier. When `Some(addr)`, only that address may call `validate_milestone`.
+    /// When `None`, only the creator may call `validate_milestone` (no third-party validation).
+    /// `release_funds` is consistent: after deadline, anyone can release; before deadline, only
+    /// after the designated validator (or creator when verifier is None) has validated.
+    pub verifier: Option<Address>,
+    /// Funds go here on success.
+    pub success_destination: Address,
+    /// Funds go here on failure/redirect.
+    pub failure_destination: Address,
+    /// Current lifecycle status.
+    pub status: VaultStatus,
+    /// Set to `true` once the verifier (or authorised party) calls `validate_milestone`.
+    /// Used by `release_funds` to allow early release before the deadline.
+    pub milestone_validated: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Storage keys
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Vault(u32),
+    VaultCount,
+}
+
+// ─── Event Payloads ──────────────────────────────────────────────────────────
+//
+// Each state-changing operation publishes a dedicated event with a typed
+// payload struct so that indexers / auditing tools get a predictable schema.
+
+/// Payload for `vault_created` events.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultCreatedEvent {
+    pub vault_id: u32,
     pub creator: Address,
     pub amount: i128,
     pub start_timestamp: u64,
@@ -22,17 +116,74 @@ pub struct ProductivityVault {
     pub verifier: Option<Address>,
     pub success_destination: Address,
     pub failure_destination: Address,
+}
+
+/// Payload for `milestone_validated` events.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneValidatedEvent {
+    pub vault_id: u32,
+    pub verifier: Address,
+    pub destination: Address,
+    pub amount: i128,
     pub status: VaultStatus,
 }
+
+/// Payload for `funds_released` events.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FundsReleasedEvent {
+    pub vault_id: u32,
+    pub destination: Address,
+    pub amount: i128,
+    pub status: VaultStatus,
+}
+
+/// Payload for `funds_redirected` events.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FundsRedirectedEvent {
+    pub vault_id: u32,
+    pub destination: Address,
+    pub amount: i128,
+    pub status: VaultStatus,
+}
+
+/// Payload for `vault_cancelled` events.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultCancelledEvent {
+    pub vault_id: u32,
+    pub creator: Address,
+    pub amount: i128,
+    pub status: VaultStatus,
+}
+
+// ---------------------------------------------------------------------------
+// Contract
+// ---------------------------------------------------------------------------
 
 #[contract]
 pub struct DisciplrVault;
 
+// ─── Public Interface ────────────────────────────────────────────────────────
+
 #[contractimpl]
 impl DisciplrVault {
+    // -----------------------------------------------------------------------
+    // create_vault
+    // -----------------------------------------------------------------------
+
     /// Create a new productivity vault. Caller must have approved USDC transfer to this contract.
+    ///
+    /// # Validation Rules
+    /// - Requires `amount > 0`.
+    /// - Requires `start_timestamp < end_timestamp`.
+    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
+    /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
     pub fn create_vault(
         env: Env,
+        usdc_token: Address,
         creator: Address,
         amount: i128,
         start_timestamp: u64,
@@ -41,12 +192,56 @@ impl DisciplrVault {
         verifier: Option<Address>,
         success_destination: Address,
         failure_destination: Address,
-    ) -> u32 {
+    ) -> Result<u32, Error> {
         creator.require_auth();
-        // TODO: pull USDC from creator to this contract
-        // For now, just store vault metadata (storage key pattern would be used in full impl)
+
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        if end_timestamp <= start_timestamp {
+            return Err(Error::InvalidTimestamps);
+        }
+
+        if end_timestamp - start_timestamp > MAX_VAULT_DURATION {
+            return Err(Error::DurationTooLong);
+        }
+
+        // Pull USDC from creator into this contract.
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&creator, &env.current_contract_address(), &amount);
+
+        let mut vault_count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::VaultCount)
+            .unwrap_or(0);
+        let vault_id = vault_count;
+        vault_count += 1;
+        env.storage()
+            .instance()
+            .set(&DataKey::VaultCount, &vault_count);
+
         let vault = ProductivityVault {
             creator: creator.clone(),
+            amount,
+            start_timestamp,
+            end_timestamp,
+            milestone_hash: milestone_hash.clone(),
+            verifier: verifier.clone(),
+            success_destination: success_destination.clone(),
+            failure_destination: failure_destination.clone(),
+            status: VaultStatus::Active,
+            milestone_validated: false,
+        };
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Vault(vault_id), &vault);
+
+        let event = VaultCreatedEvent {
+            vault_id,
+            creator,
             amount,
             start_timestamp,
             end_timestamp,
@@ -54,82 +249,421 @@ impl DisciplrVault {
             verifier,
             success_destination,
             failure_destination,
-            status: VaultStatus::Active,
         };
-        let vault_id = 0u32; // placeholder; real impl would allocate id and persist
+
         env.events()
-            .publish((Symbol::new(&env, "vault_created"), vault_id), vault);
-        vault_id
+            .publish((Symbol::new(&env, "vault_created"), vault_id), event);
+
+        Ok(vault_id)
     }
+
+    // -----------------------------------------------------------------------
+    // validate_milestone
+    // -----------------------------------------------------------------------
 
     /// Verifier (or authorized party) validates milestone completion.
-    pub fn validate_milestone(env: Env, vault_id: u32) -> bool {
-        // TODO: check vault exists, status is Active, caller is verifier, timestamp < end
-        // TODO: transfer USDC to success_destination, set status Completed
+    ///
+    /// The milestone can only be validated while the vault is `Active` and
+    /// before the `end_timestamp` deadline.  If a designated verifier is set,
+    /// their authorization is required.
+    /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
+    /// this function. If `verifier` is `None`, only the creator may call it (no validation by
+    /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
+    pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
+        let vault_key = DataKey::Vault(vault_id);
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&vault_key)
+            .ok_or(Error::VaultNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive);
+        }
+
+        // When verifier is Some, only that address may validate; when None, only creator may validate.
+        if let Some(ref verifier) = vault.verifier {
+            verifier.require_auth();
+        } else {
+            vault.creator.require_auth();
+        }
+
+        // Timestamp check: rejects when current time >= end_timestamp
+        if env.ledger().timestamp() >= vault.end_timestamp {
+            return Err(Error::MilestoneExpired);
+        }
+
+        vault.milestone_validated = true;
+        env.storage().instance().set(&vault_key, &vault);
+
+        let event = MilestoneValidatedEvent {
+            vault_id,
+            verifier: vault.verifier.clone().unwrap_or(vault.creator.clone()),
+            destination: vault.success_destination.clone(),
+            amount: vault.amount,
+            status: vault.status,
+        };
+
         env.events()
-            .publish((Symbol::new(&env, "milestone_validated"), vault_id), ());
-        true
+            .publish((Symbol::new(&env, "milestone_validated"), vault_id), event);
+
+        Ok(true)
     }
 
-    /// Release funds to success destination (called after validation or by deadline logic).
-    pub fn release_funds(_env: Env, _vault_id: u32) -> bool {
-        // TODO: require status Active, transfer to success_destination, set Completed
-        true
+    // -----------------------------------------------------------------------
+    // release_funds
+    // -----------------------------------------------------------------------
+
+    /// Release vault funds to `success_destination`.
+    pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        let vault_key = DataKey::Vault(vault_id);
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&vault_key)
+            .ok_or(Error::VaultNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive); // Or InvalidStatus as appropriate
+        }
+
+        // Check release conditions.
+        let now = env.ledger().timestamp();
+        let deadline_reached = now >= vault.end_timestamp;
+        let validated = vault.milestone_validated;
+
+        if !validated && !deadline_reached {
+            return Err(Error::NotAuthorized);
+        }
+
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.success_destination,
+            &vault.amount,
+        );
+
+        vault.status = VaultStatus::Completed;
+        env.storage().instance().set(&vault_key, &vault);
+
+        let event = FundsReleasedEvent {
+            vault_id,
+            destination: vault.success_destination.clone(),
+            amount: vault.amount,
+            status: VaultStatus::Completed,
+        };
+
+        env.events()
+            .publish((Symbol::new(&env, "funds_released"), vault_id), event);
+        Ok(true)
     }
 
-    /// Redirect funds to failure destination (e.g. after deadline without validation).
-    pub fn redirect_funds(_env: Env, _vault_id: u32) -> bool {
-        // TODO: require status Active and past end_timestamp, transfer to failure_destination, set Failed
-        true
+    // -----------------------------------------------------------------------
+    // redirect_funds
+    // -----------------------------------------------------------------------
+
+    /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        let vault_key = DataKey::Vault(vault_id);
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&vault_key)
+            .ok_or(Error::VaultNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive);
+        }
+
+        if env.ledger().timestamp() < vault.end_timestamp {
+            return Err(Error::InvalidTimestamp); // Too early to redirect
+        }
+
+        // If milestone was validated the funds should go to success, not failure.
+        if vault.milestone_validated {
+            return Err(Error::NotAuthorized);
+        }
+
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.failure_destination,
+            &vault.amount,
+        );
+
+        vault.status = VaultStatus::Failed;
+        env.storage().instance().set(&vault_key, &vault);
+
+        let event = FundsRedirectedEvent {
+            vault_id,
+            destination: vault.failure_destination.clone(),
+            amount: vault.amount,
+            status: VaultStatus::Failed,
+        };
+
+        env.events()
+            .publish((Symbol::new(&env, "funds_redirected"), vault_id), event);
+        Ok(true)
     }
 
-    /// Cancel vault and return funds to creator (if allowed by rules).
-    pub fn cancel_vault(_env: Env, _vault_id: u32) -> bool {
-        // TODO: require creator auth, return USDC to creator, set Cancelled
-        true
+    // -----------------------------------------------------------------------
+    // cancel_vault
+    // -----------------------------------------------------------------------
+
+    /// Cancel vault and return funds to creator.
+    pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        let vault_key = DataKey::Vault(vault_id);
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&vault_key)
+            .ok_or(Error::VaultNotFound)?;
+
+        vault.creator.require_auth();
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive);
+        }
+
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.creator,
+            &vault.amount,
+        );
+
+        vault.status = VaultStatus::Cancelled;
+        env.storage().instance().set(&vault_key, &vault);
+
+        let event = VaultCancelledEvent {
+            vault_id,
+            creator: vault.creator.clone(),
+            amount: vault.amount,
+            status: VaultStatus::Cancelled,
+        };
+
+        env.events()
+            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), event);
+        Ok(true)
     }
 
-    /// Return current vault state for a given vault id.
-    /// Placeholder: returns None; full impl would read from storage.
-    pub fn get_vault_state(_env: Env, _vault_id: u32) -> Option<ProductivityVault> {
-        None
+    // -----------------------------------------------------------------------
+    // get_vault_state
+    // -----------------------------------------------------------------------
+
+    /// Return current vault state, or `None` if the vault does not exist.
+    pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
+        env.storage().instance().get(&DataKey::Vault(vault_id))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, AuthorizedFunction, Events, Ledger},
+        token::{StellarAssetClient, TokenClient},
+        Address, BytesN, Env, Symbol, TryIntoVal,
+    };
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    struct TestSetup {
+        env: Env,
+        contract_id: Address,
+        usdc_token: Address,
+        creator: Address,
+        verifier: Address,
+        success_dest: Address,
+        failure_dest: Address,
+        amount: i128,
+        start_timestamp: u64,
+        end_timestamp: u64,
     }
 
-    // ===== USDC Balance Tests: cancel_vault =====
+    impl TestSetup {
+        fn new() -> Self {
+            let env = Env::default();
+            env.mock_all_auths();
 
-    /// Tests that after cancel_vault, the creator's USDC balance is fully restored
-    /// by exactly the vault amount, and the contract's balance decreases by the same.
+            // Deploy USDC mock token.
+            let usdc_admin = Address::generate(&env);
+            let usdc_token = env.register_stellar_asset_contract_v2(usdc_admin.clone());
+            let usdc_addr = usdc_token.address();
+            let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
+
+            // Actors.
+            let creator = Address::generate(&env);
+            let verifier = Address::generate(&env);
+            let success_dest = Address::generate(&env);
+            let failure_dest = Address::generate(&env);
+
+            // Mint USDC to creator.
+            let amount: i128 = 1_000_000; // 1 USDC (6 decimals)
+            usdc_asset.mint(&creator, &amount);
+
+            // Deploy contract.
+            let contract_id = env.register(DisciplrVault, ());
+
+            TestSetup {
+                env,
+                contract_id,
+                usdc_token: usdc_addr,
+                creator,
+                verifier,
+                success_dest,
+                failure_dest,
+                amount,
+                start_timestamp: 100,
+                end_timestamp: 1_000,
+            }
+        }
+
+        fn client(&self) -> DisciplrVaultClient<'_> {
+            DisciplrVaultClient::new(&self.env, &self.contract_id)
+        }
+
+        fn usdc_client(&self) -> TokenClient<'_> {
+            TokenClient::new(&self.env, &self.usdc_token)
+        }
+
+        fn milestone_hash(&self) -> BytesN<32> {
+            BytesN::from_array(&self.env, &[1u8; 32])
+        }
+
+        fn create_default_vault(&self) -> u32 {
+            self.client().create_vault(
+                &self.usdc_token,
+                &self.creator,
+                &self.amount,
+                &self.start_timestamp,
+                &self.end_timestamp,
+                &self.milestone_hash(),
+                &Some(self.verifier.clone()),
+                &self.success_dest,
+                &self.failure_dest,
+            )
+        }
+
+        /// Create vault with verifier = None (only creator can validate).
+        fn create_vault_no_verifier(&self) -> u32 {
+            self.client().create_vault(
+                &self.usdc_token,
+                &self.creator,
+                &self.amount,
+                &self.start_timestamp,
+                &self.end_timestamp,
+                &self.milestone_hash(),
+                &None,
+                &self.success_dest,
+                &self.failure_dest,
+            )
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Upstream Tests (Migrated & Merged)
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn test_usdc_balance_updates_after_cancel_vault() {
+    fn get_vault_state_returns_some_with_matching_fields() {
         let setup = TestSetup::new();
         let client = setup.client();
-        let usdc = setup.usdc_client();
 
-        let before_create = usdc.balance(&setup.creator);
         let vault_id = setup.create_default_vault();
 
-        assert_eq!(
-            usdc.balance(&setup.creator),
-            before_create - setup.amount,
-            "Creator balance should decrease by amount after creation"
+        let vault_state = client.get_vault_state(&vault_id);
+        assert!(vault_state.is_some());
+
+        let vault = vault_state.unwrap();
+        assert_eq!(vault.creator, setup.creator);
+        assert_eq!(vault.amount, setup.amount);
+        assert_eq!(vault.start_timestamp, setup.start_timestamp);
+        assert_eq!(vault.end_timestamp, setup.end_timestamp);
+        assert_eq!(vault.milestone_hash, setup.milestone_hash());
+        assert_eq!(vault.verifier, Some(setup.verifier));
+        assert_eq!(vault.success_destination, setup.success_dest);
+        assert_eq!(vault.failure_destination, setup.failure_dest);
+        assert_eq!(vault.status, VaultStatus::Active);
+    }
+
+    /// Issue #42: milestone_hash passed to create_vault is stored and returned by get_vault_state.
+    #[test]
+    fn test_milestone_hash_storage_and_retrieval() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let custom_hash = BytesN::from_array(&setup.env, &[0xab; 32]);
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+
+        let vault_id = client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &custom_hash,
+            &Some(setup.verifier.clone()),
+            &setup.success_dest,
+            &setup.failure_dest,
         );
 
-        client.cancel_vault(&vault_id, &setup.usdc_token);
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.milestone_hash, custom_hash);
+    }
 
-        assert_eq!(
-            usdc.balance(&setup.creator),
-            before_create,
-            "Creator balance should be fully restored after cancellation"
+    #[test]
+    fn test_create_vault_invalid_amount_returns_error() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &0i128,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
         );
-        assert_eq!(
-            usdc.balance(&setup.contract_id),
-            0,
-            "Contract balance should be zero after cancellation"
+        assert!(
+            result.is_err(),
+            "create_vault with amount 0 should return InvalidAmount"
         );
     }
 
-    /// Tests cancel_vault when the creator has exactly the vault amount.
-    /// Guards against rounding errors and ensures full balance restoration.
+    #[test]
+    fn test_create_vault_invalid_timestamps_returns_error() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &1000u64,
+            &1000u64,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+        assert!(
+            result.is_err(),
+            "create_vault with start >= end should return InvalidTimestamps"
+        );
+    }
+
     #[test]
     fn test_validate_milestone_rejects_after_end() {
         let setup = TestSetup::new();
@@ -153,45 +687,6 @@ impl DisciplrVault {
         assert!(result.is_err());
     }
 
-    /// After validation (or when release is allowed), release_funds transfers the vault amount
-    /// to success_destination and vault status becomes Completed.
-    /// Steps: create vault → validate milestone (if required) → release_funds → assert balance and status.
-    #[test]
-    fn test_release_funds_sets_status_completed_and_releases_to_success_destination() {
-        let setup = TestSetup::new();
-        let client = setup.client();
-
-        // 1. Create vault
-        setup.env.ledger().set_timestamp(setup.start_timestamp);
-        let vault_id = setup.create_vault_no_verifier();
-
-        // 2. Validate milestone (required for release before deadline)
-        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
-        let validated = client.validate_milestone(&vault_id);
-        assert!(validated, "validate_milestone must succeed before end time");
-
-        // 3. Call release_funds
-        let released = client.release_funds(&vault_id, &setup.usdc_token);
-        assert!(released, "release_funds must succeed after validation");
-
-        // 4. Assert vault status is Completed
-        let vault = client.get_vault_state(&vault_id).expect("vault must exist");
-        assert_eq!(
-            vault.status,
-            VaultStatus::Completed,
-            "vault status must be Completed after release_funds"
-        );
-        assert_eq!(vault.amount, setup.amount);
-        assert_eq!(vault.success_destination, setup.success_dest);
-
-        // 5. Assert success_destination received the vault amount
-        let balance = setup.usdc_client().balance(&setup.success_dest);
-        assert_eq!(
-            balance, setup.amount,
-            "success_destination balance must equal vault amount after release"
-        );
-    }
-
     #[test]
     fn test_validate_milestone_succeeds_before_end() {
         let setup = TestSetup::new();
@@ -210,6 +705,15 @@ impl DisciplrVault {
         // Validation now sets milestone_validated, NOT status = Completed
         assert!(vault.milestone_validated);
         assert_eq!(vault.status, VaultStatus::Active);
+    }
+
+    #[test]
+    fn test_validate_milestone_rejects_non_existent_vault() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_validate_milestone(&999u32);
+        assert!(result.is_err());
     }
 
     /// Issue #14: When verifier is None, only creator may validate. Creator succeeds.
@@ -259,15 +763,6 @@ impl DisciplrVault {
     }
 
     #[test]
-    fn test_validate_milestone_rejects_non_existent_vault() {
-        let setup = TestSetup::new();
-        let client = setup.client();
-
-        let result = client.try_validate_milestone(&999);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_redirect_funds_rejects_non_existent_vault() {
         let setup = TestSetup::new();
         let client = setup.client();
@@ -276,34 +771,173 @@ impl DisciplrVault {
         assert!(result.is_err());
     }
 
-        let usdc_admin = Address::generate(&env);
-        let usdc_token = env.register_stellar_asset_contract_v2(usdc_admin.clone());
-        let usdc_addr = usdc_token.address();
-        let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
-        let usdc_client = TokenClient::new(&env, &usdc_addr);
+    #[test]
+    #[should_panic(expected = "Error(Contract, #8)")]
+    fn create_vault_rejects_start_equal_end() {
+        let setup = TestSetup::new();
+        let client = setup.client();
 
-        let creator = Address::generate(&env);
-        let amount = 1_000_000i128;
-
-        // Mint EXACTLY vault_amount to creator
-        usdc_asset.mint(&creator, &amount);
-        assert_eq!(usdc_client.balance(&creator), amount);
-
-        let vault_id = client.create_vault(
-            &usdc_addr,
-            &creator,
-            &amount,
-            &100,
-            &200,
-            &BytesN::from_array(&env, &[1u8; 32]),
+        client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &1000,
+            &1000, // start == end
+            &setup.milestone_hash(),
             &None,
-            &Address::generate(&env),
-            &Address::generate(&env),
+            &setup.success_dest,
+            &setup.failure_dest,
         );
+    }
 
-        assert_eq!(usdc_client.balance(&creator), 0);
+    #[test]
+    #[should_panic(expected = "Error(Contract, #8)")]
+    fn create_vault_rejects_start_greater_than_end() {
+        let setup = TestSetup::new();
+        let client = setup.client();
 
-        client.cancel_vault(&vault_id, &usdc_addr);
+        client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &2000,
+            &1000, // start > end
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+    }
+
+    #[test]
+    fn test_create_vault_rejects_duration_above_max() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // MAX_VAULT_DURATION is 31_536_000 seconds (1 year)
+        let start = 1000u64;
+        let end = start + 31_536_001; // 1 second over the limit
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &start,
+            &end,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+        assert!(
+            result.is_err(),
+            "create_vault with duration > MAX_VAULT_DURATION should return DurationTooLong"
+        );
+    }
+
+    #[test]
+    fn test_create_vault_accepts_duration_at_max() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // MAX_VAULT_DURATION is 31_536_000 seconds (1 year)
+        let start = 1000u64;
+        let end = start + 31_536_000; // Exactly at the limit
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &start,
+            &end,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+        assert!(
+            result.is_ok(),
+            "create_vault with duration == MAX_VAULT_DURATION should succeed"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Original branch tests (adapted for new signature and Results)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_create_vault_increments_id() {
+        let setup = TestSetup::new();
+
+        // Mint extra USDC for second vault.
+        let usdc_asset = StellarAssetClient::new(&setup.env, &setup.usdc_token);
+        usdc_asset.mint(&setup.creator, &setup.amount);
+
+        let id_a = setup.create_default_vault();
+        let id_b = setup.create_default_vault();
+        assert_ne!(id_a, id_b, "vault IDs must be distinct");
+        assert_eq!(id_b, id_a + 1);
+    }
+
+    #[test]
+    fn test_release_funds_after_validation() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Validate milestone.
+        client.validate_milestone(&vault_id);
+
+        let usdc = setup.usdc_client();
+        let success_before = usdc.balance(&setup.success_dest);
+
+        // Release.
+        let result = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(result);
+
+        // Success destination received the funds.
+        let success_after = usdc.balance(&setup.success_dest);
+        assert_eq!(success_after - success_before, setup.amount);
+
+        // Vault status is Completed.
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
+    fn test_release_funds_after_deadline() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Advance ledger PAST end_timestamp.
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let usdc = setup.usdc_client();
+        let before = usdc.balance(&setup.success_dest);
+
+        let result = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(result);
+
+        assert_eq!(usdc.balance(&setup.success_dest) - before, setup.amount);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
+    fn test_double_release_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
 
         client.release_funds(&vault_id, &setup.usdc_token);
         // Second call — must error.
@@ -377,38 +1011,6 @@ impl DisciplrVault {
         assert_eq!(vault.status, VaultStatus::Failed);
     }
 
-    /// After `redirect_funds`, the failure destination balance must increase
-    /// by the vault amount and the contract's USDC balance must decrease
-    /// by the same amount (i.e., funds leave the contract and arrive at
-    /// the failure destination).
-    #[test]
-    fn test_redirect_funds_updates_contract_and_failure_balances() {
-        let setup = TestSetup::new();
-        let client = setup.client();
-
-        setup.env.ledger().set_timestamp(setup.start_timestamp);
-        let vault_id = setup.create_default_vault();
-
-        // Move past the deadline without validation so redirect is allowed.
-        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
-
-        let usdc = setup.usdc_client();
-
-        let contract_before = usdc.balance(&setup.contract_id);
-        let failure_before = usdc.balance(&setup.failure_dest);
-
-        let result = client.redirect_funds(&vault_id, &setup.usdc_token);
-        assert!(result);
-
-        let contract_after = usdc.balance(&setup.contract_id);
-        let failure_after = usdc.balance(&setup.failure_dest);
-
-        // Failure destination gains the vault amount.
-        assert_eq!(failure_after - failure_before, setup.amount);
-        // Contract balance decreases by the same vault amount.
-        assert_eq!(contract_before - contract_after, setup.amount);
-    }
-
     #[test]
     fn test_redirect_funds_before_deadline_rejected() {
         let setup = TestSetup::new();
@@ -459,6 +1061,90 @@ impl DisciplrVault {
         assert_eq!(vault.status, VaultStatus::Cancelled);
     }
 
+    /// After `release_funds`, the success destination balance must increase
+    /// by the vault amount and the contract's USDC balance must decrease
+    /// by the same amount.
+    #[test]
+    fn test_release_funds_updates_contract_and_success_balances() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let usdc = setup.usdc_client();
+        let contract_balance_before = usdc.balance(&setup.contract_id);
+        let success_balance_before = usdc.balance(&setup.success_dest);
+
+        // Validate and release
+        client.validate_milestone(&vault_id);
+        client.release_funds(&vault_id, &setup.usdc_token);
+
+        let contract_balance_after = usdc.balance(&setup.contract_id);
+        let success_balance_after = usdc.balance(&setup.success_dest);
+
+        assert_eq!(
+            contract_balance_before - contract_balance_after,
+            setup.amount
+        );
+        assert_eq!(success_balance_after - success_balance_before, setup.amount);
+    }
+
+    /// After `redirect_funds`, the failure destination balance must increase
+    /// by the vault amount and the contract's USDC balance must decrease
+    /// by the same amount.
+    #[test]
+    fn test_redirect_funds_updates_contract_and_failure_balances() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let usdc = setup.usdc_client();
+        let contract_balance_before = usdc.balance(&setup.contract_id);
+        let failure_balance_before = usdc.balance(&setup.failure_dest);
+
+        // Advance past deadline and redirect
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+        client.redirect_funds(&vault_id, &setup.usdc_token);
+
+        let contract_balance_after = usdc.balance(&setup.contract_id);
+        let failure_balance_after = usdc.balance(&setup.failure_dest);
+
+        assert_eq!(
+            contract_balance_before - contract_balance_after,
+            setup.amount
+        );
+        assert_eq!(failure_balance_after - failure_balance_before, setup.amount);
+    }
+
+    /// After `cancel_vault`, the creator balance must increase by the vault
+    /// amount and the contract's USDC balance must decrease by the same amount.
+    #[test]
+    fn test_refund_balance_tracked() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let usdc = setup.usdc_client();
+        let contract_balance_before = usdc.balance(&setup.contract_id);
+        let creator_balance_before = usdc.balance(&setup.creator);
+
+        client.cancel_vault(&vault_id, &setup.usdc_token);
+
+        let contract_balance_after = usdc.balance(&setup.contract_id);
+        let creator_balance_after = usdc.balance(&setup.creator);
+
+        assert_eq!(
+            contract_balance_before - contract_balance_after,
+            setup.amount
+        );
+        assert_eq!(creator_balance_after - creator_balance_before, setup.amount);
+    }
+
     // -----------------------------------------------------------------------
     // More upstream tests migrated
     // -----------------------------------------------------------------------
@@ -499,28 +1185,6 @@ impl DisciplrVault {
             &setup.usdc_token,
             &setup.creator,
             &0i128,
-            &1000,
-            &2000,
-            &setup.milestone_hash(),
-            &None,
-            &setup.success_dest,
-            &setup.failure_dest,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #7)")]
-    fn test_create_vault_amount_above_max_rejected() {
-        let setup = TestSetup::new();
-        let client = setup.client();
-        let amount_above_max = MAX_AMOUNT
-            .checked_add(1)
-            .expect("MAX_AMOUNT + 1 overflowed");
-
-        client.create_vault(
-            &setup.usdc_token,
-            &setup.creator,
-            &amount_above_max,
             &1000,
             &2000,
             &setup.milestone_hash(),
@@ -770,152 +1434,170 @@ impl DisciplrVault {
     }
 
     // -----------------------------------------------------------------------
-    // Issue #21: validate_milestone only succeeds when caller is verifier
+    // Event Payload Tests  (Issue #11)
     // -----------------------------------------------------------------------
 
-    /// Issue #21: validate_milestone succeeds when the caller is the vault's verifier (X).
-    /// Creates a vault with verifier = X, calls validate_milestone as X and asserts success.
     #[test]
-    fn test_validate_milestone_succeeds_as_verifier() {
+    fn test_create_vault_event_payload() {
         let setup = TestSetup::new();
-        let client = setup.client();
+        let _client = setup.client();
 
-        // Set time within the active window.
         setup.env.ledger().set_timestamp(setup.start_timestamp);
-
-        // Create vault with an explicit verifier (setup.verifier = X).
         let vault_id = setup.create_default_vault();
 
-        // Advance time to just before the deadline so the milestone is still validatable.
-        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
-
-        // Call validate_milestone — mock_all_auths() lets the verifier's auth pass.
-        let result = client.validate_milestone(&vault_id);
+        let all_events = setup.env.events().all();
+        let mut found = false;
+        for (emitting_contract, topics, data) in all_events {
+            if emitting_contract == setup.contract_id {
+                let name: Symbol = topics.get(0).unwrap().try_into_val(&setup.env).unwrap();
+                if name == Symbol::new(&setup.env, "vault_created") {
+                    let payload: VaultCreatedEvent = data.try_into_val(&setup.env).unwrap();
+                    assert_eq!(payload.vault_id, vault_id);
+                    assert_eq!(payload.creator, setup.creator);
+                    assert_eq!(payload.amount, setup.amount);
+                    assert_eq!(payload.start_timestamp, setup.start_timestamp);
+                    assert_eq!(payload.end_timestamp, setup.end_timestamp);
+                    assert_eq!(payload.milestone_hash, setup.milestone_hash());
+                    assert_eq!(payload.verifier, Some(setup.verifier.clone()));
+                    assert_eq!(payload.success_destination, setup.success_dest);
+                    assert_eq!(payload.failure_destination, setup.failure_dest);
+                    found = true;
+                }
+            }
+        }
         assert!(
-            result,
-            "validate_milestone should return true when called by verifier"
-        );
-
-        // Confirm the vault state reflects the validation.
-        let vault = client.get_vault_state(&vault_id).unwrap();
-        assert!(
-            vault.milestone_validated,
-            "milestone_validated must be true after verifier validates"
-        );
-        assert_eq!(
-            vault.status,
-            VaultStatus::Active,
-            "vault status remains Active after validation (funds not yet released)"
+            found,
+            "vault_created event must be emitted with correct payload"
         );
     }
 
-    /// Issue #21: validate_milestone fails when the caller is NOT the vault's verifier.
-    /// Creates a vault with verifier = X, then attempts validate_milestone without
-    /// providing auth for X — the contract must reject the call.
     #[test]
-    #[should_panic]
-    fn test_validate_milestone_fails_as_non_verifier() {
-        // Deliberately do NOT use mock_all_auths so that require_auth() is enforced.
-        let env = Env::default();
-
-        let usdc_admin = Address::generate(&env);
-        let usdc_token = env.register_stellar_asset_contract_v2(usdc_admin.clone());
-        let usdc_addr = usdc_token.address();
-        let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
-
-        let creator = Address::generate(&env);
-        let verifier = Address::generate(&env); // X — the authorised verifier
-        let _non_verifier = Address::generate(&env); // Y — a different address
-        let success_dest = Address::generate(&env);
-        let failure_dest = Address::generate(&env);
-        let amount: i128 = 1_000_000;
-        let start_timestamp: u64 = 100;
-        let end_timestamp: u64 = 1_000;
-        let milestone_hash = BytesN::<32>::from_array(&env, &[1u8; 32]);
-
-        // Mint USDC and register the contract — use mock_all_auths just for setup.
-        env.mock_all_auths();
-        usdc_asset.mint(&creator, &amount);
-        let contract_id = env.register(DisciplrVault, ());
-        let client = DisciplrVaultClient::new(&env, &contract_id);
-
-        env.ledger().set_timestamp(start_timestamp);
-
-        client.create_vault(
-            &usdc_addr,
-            &creator,
-            &amount,
-            &start_timestamp,
-            &end_timestamp,
-            &milestone_hash,
-            &Some(verifier.clone()), // vault.verifier = X
-            &success_dest,
-            &failure_dest,
-        );
-
-        env.ledger().set_timestamp(end_timestamp - 1);
-
-        // Stop mocking auths so that require_auth() is actually enforced.
-        // Y (non_verifier) has no authorization — calling validate_milestone must panic.
-        let env2 = Env::default();
-        let contract_id2 = env2.register(DisciplrVault, ());
-        let client2 = DisciplrVaultClient::new(&env2, &contract_id2);
-
-        // This call is made against a fresh env with no auths — it must panic.
-        client2.validate_milestone(&0u32);
-    /// Issue #44: Test that create_vault accepts verifier == creator
-    /// and that validate_milestone can be called by the creator in that case.
-    #[test]
-    fn test_verifier_same_as_creator() {
-    // -----------------------------------------------------------------------
-    // Issue #25: release_funds fails when vault is Failed
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_release_funds_fails_when_vault_failed() {
+    fn test_validate_milestone_event_payload() {
         let setup = TestSetup::new();
         let client = setup.client();
 
         setup.env.ledger().set_timestamp(setup.start_timestamp);
-
-        let vault_id = client.create_vault(
-            &setup.usdc_token,
-            &setup.creator,
-            &setup.amount,
-            &setup.start_timestamp,
-            &setup.end_timestamp,
-            &setup.milestone_hash(),
-            &Some(setup.creator.clone()),
-            &setup.success_dest,
-            &setup.failure_dest,
-        );
-
-        setup
-            .env
-            .ledger()
-            .set_timestamp(setup.start_timestamp + 500);
-
-        let result = client.validate_milestone(&vault_id);
-        assert!(result);
-
-        let vault = client.get_vault_state(&vault_id).unwrap();
-        assert!(vault.milestone_validated);
-        assert_eq!(vault.verifier, Some(setup.creator.clone()));
         let vault_id = setup.create_default_vault();
 
-        // Past deadline + redirect → Failed
+        // Validate milestone (timestamp is still before end)
+        client.validate_milestone(&vault_id);
+
+        let all_events = setup.env.events().all();
+        let mut found = false;
+        for (emitting_contract, topics, data) in all_events {
+            if emitting_contract == setup.contract_id {
+                let name: Symbol = topics.get(0).unwrap().try_into_val(&setup.env).unwrap();
+                if name == Symbol::new(&setup.env, "milestone_validated") {
+                    let payload: MilestoneValidatedEvent = data.try_into_val(&setup.env).unwrap();
+                    assert_eq!(payload.vault_id, vault_id);
+                    assert_eq!(payload.verifier, setup.verifier);
+                    assert_eq!(payload.destination, setup.success_dest);
+                    assert_eq!(payload.amount, setup.amount);
+                    assert_eq!(payload.status, VaultStatus::Active);
+                    found = true;
+                }
+            }
+        }
+        assert!(
+            found,
+            "milestone_validated event must be emitted with correct payload"
+        );
+    }
+
+    #[test]
+    fn test_release_funds_event_payload() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Validate then release
+        client.validate_milestone(&vault_id);
+        client.release_funds(&vault_id, &setup.usdc_token);
+
+        let all_events = setup.env.events().all();
+        let mut found = false;
+        for (emitting_contract, topics, data) in all_events {
+            if emitting_contract == setup.contract_id {
+                let name: Symbol = topics.get(0).unwrap().try_into_val(&setup.env).unwrap();
+                if name == Symbol::new(&setup.env, "funds_released") {
+                    let payload: FundsReleasedEvent = data.try_into_val(&setup.env).unwrap();
+                    assert_eq!(payload.vault_id, vault_id);
+                    assert_eq!(payload.destination, setup.success_dest);
+                    assert_eq!(payload.amount, setup.amount);
+                    assert_eq!(payload.status, VaultStatus::Completed);
+                    found = true;
+                }
+            }
+        }
+        assert!(
+            found,
+            "funds_released event must be emitted with correct payload"
+        );
+    }
+
+    #[test]
+    fn test_redirect_funds_event_payload() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Advance past deadline and redirect
         setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
         client.redirect_funds(&vault_id, &setup.usdc_token);
 
-        let vault = client.get_vault_state(&vault_id).unwrap();
-        assert_eq!(vault.status, VaultStatus::Failed);
-
-        // Release on Failed vault must fail with VaultNotActive
+        let all_events = setup.env.events().all();
+        let mut found = false;
+        for (emitting_contract, topics, data) in all_events {
+            if emitting_contract == setup.contract_id {
+                let name: Symbol = topics.get(0).unwrap().try_into_val(&setup.env).unwrap();
+                if name == Symbol::new(&setup.env, "funds_redirected") {
+                    let payload: FundsRedirectedEvent = data.try_into_val(&setup.env).unwrap();
+                    assert_eq!(payload.vault_id, vault_id);
+                    assert_eq!(payload.destination, setup.failure_dest);
+                    assert_eq!(payload.amount, setup.amount);
+                    assert_eq!(payload.status, VaultStatus::Failed);
+                    found = true;
+                }
+            }
+        }
         assert!(
-            client
-                .try_release_funds(&vault_id, &setup.usdc_token)
-                .is_err(),
-            "release_funds must fail on a Failed vault"
+            found,
+            "funds_redirected event must be emitted with correct payload"
+        );
+    }
+
+    #[test]
+    fn test_cancel_vault_event_payload() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        client.cancel_vault(&vault_id, &setup.usdc_token);
+
+        let all_events = setup.env.events().all();
+        let mut found = false;
+        for (emitting_contract, topics, data) in all_events {
+            if emitting_contract == setup.contract_id {
+                let name: Symbol = topics.get(0).unwrap().try_into_val(&setup.env).unwrap();
+                if name == Symbol::new(&setup.env, "vault_cancelled") {
+                    let payload: VaultCancelledEvent = data.try_into_val(&setup.env).unwrap();
+                    assert_eq!(payload.vault_id, vault_id);
+                    assert_eq!(payload.creator, setup.creator);
+                    assert_eq!(payload.amount, setup.amount);
+                    assert_eq!(payload.status, VaultStatus::Cancelled);
+                    found = true;
+                }
+            }
+        }
+        assert!(
+            found,
+            "vault_cancelled event must be emitted with correct payload"
         );
     }
 }

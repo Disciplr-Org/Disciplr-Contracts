@@ -777,14 +777,6 @@
                 },
                 {
                   "key": {
-                    "symbol": "milestone_validated"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "start_timestamp"
                   },
                   "val": {
@@ -793,18 +785,18 @@
                 },
                 {
                   "key": {
-                    "symbol": "status"
-                  },
-                  "val": {
-                    "u32": 0
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "success_destination"
                   },
                   "val": {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "vault_id"
+                  },
+                  "val": {
+                    "u32": 0
                   }
                 },
                 {
