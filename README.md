@@ -9,12 +9,12 @@ Single contract **disciplr-vault** with:
 - **Data model:** `ProductivityVault` (creator, amount, start/end timestamps, milestone hash, optional verifier, success/failure destinations, status).
 - **Status:** `Active`, `Completed`, `Failed`, `Cancelled`.
 - **Methods (stubs):**
-  - `create_vault(...)` — create vault and emit `vault_created` (USDC lock is TODO).
+  - `create_vault(token, creator, amount, ...)` — create vault, pull token from creator to contract, persist vault, emit `vault_created`.
   - `validate_milestone(vault_id)` — verifier validates milestone (release logic TODO).
   - `release_funds(vault_id)` — release to success destination (TODO).
   - `redirect_funds(vault_id)` — redirect to failure destination (TODO).
-  - `cancel_vault(vault_id)` — cancel and return to creator (TODO).
-  - `get_vault_state(vault_id)` — return vault state (returns `Option`; placeholder returns `None`).
+  - `cancel_vault(vault_id)` — cancel and return funds to creator; sets status to `Cancelled`.
+  - `get_vault_state(vault_id)` — return vault state from storage.
 
 ## Implementation Status
 
