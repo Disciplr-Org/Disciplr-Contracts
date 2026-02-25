@@ -131,11 +131,150 @@ impl DisciplrVault {
     /// Tests cancel_vault when the creator has exactly the vault amount.
     /// Guards against rounding errors and ensures full balance restoration.
     #[test]
-    fn test_cancel_vault_exact_balance_no_remainder() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register(DisciplrVault, ());
-        let client = DisciplrVaultClient::new(&env, &contract_id);
+    fn test_validate_milestone_rejects_after_end() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Advance ledger to exactly end_timestamp
+        setup.env.ledger().set_timestamp(setup.end_timestamp);
+
+        // Try to validate milestone - should fail with MilestoneExpired
+        let result = client.try_validate_milestone(&vault_id);
+        assert!(result.is_err());
+
+        // Advance ledger past end_timestamp
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        // Try to validate milestone - should also fail
+        let result = client.try_validate_milestone(&vault_id);
+        assert!(result.is_err());
+    }
+
+    /// After validation (or when release is allowed), release_funds transfers the vault amount
+    /// to success_destination and vault status becomes Completed.
+    /// Steps: create vault → validate milestone (if required) → release_funds → assert balance and status.
+    #[test]
+    fn test_release_funds_sets_status_completed_and_releases_to_success_destination() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // 1. Create vault
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_vault_no_verifier();
+
+        // 2. Validate milestone (required for release before deadline)
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+        let validated = client.validate_milestone(&vault_id);
+        assert!(validated, "validate_milestone must succeed before end time");
+
+        // 3. Call release_funds
+        let released = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(released, "release_funds must succeed after validation");
+
+        // 4. Assert vault status is Completed
+        let vault = client.get_vault_state(&vault_id).expect("vault must exist");
+        assert_eq!(
+            vault.status,
+            VaultStatus::Completed,
+            "vault status must be Completed after release_funds"
+        );
+        assert_eq!(vault.amount, setup.amount);
+        assert_eq!(vault.success_destination, setup.success_dest);
+
+        // 5. Assert success_destination received the vault amount
+        let balance = setup.usdc_client().balance(&setup.success_dest);
+        assert_eq!(
+            balance, setup.amount,
+            "success_destination balance must equal vault amount after release"
+        );
+    }
+
+    #[test]
+    fn test_validate_milestone_succeeds_before_end() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Set time to just before end
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+
+        let success = client.validate_milestone(&vault_id);
+        assert!(success);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        // Validation now sets milestone_validated, NOT status = Completed
+        assert!(vault.milestone_validated);
+        assert_eq!(vault.status, VaultStatus::Active);
+    }
+
+    /// Issue #14: When verifier is None, only creator may validate. Creator succeeds.
+    #[test]
+    fn test_validate_milestone_verifier_none_creator_succeeds() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_vault_no_verifier();
+
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+
+        let result = client.validate_milestone(&vault_id);
+        assert!(result);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert!(vault.milestone_validated);
+        assert_eq!(vault.verifier, None);
+    }
+
+    /// Issue #14: When verifier is None, release_funds after deadline (no validation) still works.
+    #[test]
+    fn test_release_funds_verifier_none_after_deadline() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_vault_no_verifier();
+
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let result = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(result);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
+    fn test_release_funds_rejects_non_existent_vault() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_release_funds(&999, &setup.usdc_token);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_milestone_rejects_non_existent_vault() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_validate_milestone(&999);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_redirect_funds_rejects_non_existent_vault() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_redirect_funds(&999, &setup.usdc_token);
+        assert!(result.is_err());
+    }
 
         let usdc_admin = Address::generate(&env);
         let usdc_token = env.register_stellar_asset_contract_v2(usdc_admin.clone());

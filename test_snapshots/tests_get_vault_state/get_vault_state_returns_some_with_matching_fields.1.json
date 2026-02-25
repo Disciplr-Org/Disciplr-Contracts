@@ -24,13 +24,13 @@
                   }
                 },
                 {
-                  "u64": 1000
+                  "u64": 1700000000
                 },
                 {
-                  "u64": 2000
+                  "u64": 1700086400
                 },
                 {
-                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                  "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -48,31 +48,12 @@
         }
       ]
     ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "validate_milestone",
-              "args": [
-                {
-                  "u32": 0
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
     []
   ],
   "ledger": {
     "protocol_version": 22,
     "sequence_number": 0,
-    "timestamp": 1999,
+    "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -140,7 +121,7 @@
                         "symbol": "end_timestamp"
                       },
                       "val": {
-                        "u64": 2000
+                        "u64": 1700086400
                       }
                     },
                     {
@@ -156,7 +137,7 @@
                         "symbol": "milestone_hash"
                       },
                       "val": {
-                        "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                        "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                       }
                     },
                     {
@@ -164,7 +145,7 @@
                         "symbol": "start_timestamp"
                       },
                       "val": {
-                        "u64": 1000
+                        "u64": 1700000000
                       }
                     },
                     {
@@ -272,7 +253,7 @@
                                 "symbol": "end_timestamp"
                               },
                               "val": {
-                                "u64": 2000
+                                "u64": 1700086400
                               }
                             },
                             {
@@ -288,7 +269,7 @@
                                 "symbol": "milestone_hash"
                               },
                               "val": {
-                                "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                                "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                               }
                             },
                             {
@@ -296,7 +277,7 @@
                                 "symbol": "start_timestamp"
                               },
                               "val": {
-                                "u64": 1000
+                                "u64": 1700000000
                               }
                             },
                             {
@@ -304,7 +285,7 @@
                                 "symbol": "status"
                               },
                               "val": {
-                                "u32": 1
+                                "u32": 0
                               }
                             },
                             {
@@ -370,39 +351,6 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 801925984706572462
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
-          },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": 5541220902715666415
-              }
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": 5541220902715666415
                   }
                 },
                 "durability": "temporary",
