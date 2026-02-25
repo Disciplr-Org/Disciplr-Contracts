@@ -769,6 +769,100 @@ impl DisciplrVault {
         client.cancel_vault(&999u32, &setup.usdc_token);
     }
 
+    // -----------------------------------------------------------------------
+    // Issue #21: validate_milestone only succeeds when caller is verifier
+    // -----------------------------------------------------------------------
+
+    /// Issue #21: validate_milestone succeeds when the caller is the vault's verifier (X).
+    /// Creates a vault with verifier = X, calls validate_milestone as X and asserts success.
+    #[test]
+    fn test_validate_milestone_succeeds_as_verifier() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // Set time within the active window.
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+
+        // Create vault with an explicit verifier (setup.verifier = X).
+        let vault_id = setup.create_default_vault();
+
+        // Advance time to just before the deadline so the milestone is still validatable.
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+
+        // Call validate_milestone — mock_all_auths() lets the verifier's auth pass.
+        let result = client.validate_milestone(&vault_id);
+        assert!(
+            result,
+            "validate_milestone should return true when called by verifier"
+        );
+
+        // Confirm the vault state reflects the validation.
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert!(
+            vault.milestone_validated,
+            "milestone_validated must be true after verifier validates"
+        );
+        assert_eq!(
+            vault.status,
+            VaultStatus::Active,
+            "vault status remains Active after validation (funds not yet released)"
+        );
+    }
+
+    /// Issue #21: validate_milestone fails when the caller is NOT the vault's verifier.
+    /// Creates a vault with verifier = X, then attempts validate_milestone without
+    /// providing auth for X — the contract must reject the call.
+    #[test]
+    #[should_panic]
+    fn test_validate_milestone_fails_as_non_verifier() {
+        // Deliberately do NOT use mock_all_auths so that require_auth() is enforced.
+        let env = Env::default();
+
+        let usdc_admin = Address::generate(&env);
+        let usdc_token = env.register_stellar_asset_contract_v2(usdc_admin.clone());
+        let usdc_addr = usdc_token.address();
+        let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
+
+        let creator = Address::generate(&env);
+        let verifier = Address::generate(&env); // X — the authorised verifier
+        let _non_verifier = Address::generate(&env); // Y — a different address
+        let success_dest = Address::generate(&env);
+        let failure_dest = Address::generate(&env);
+        let amount: i128 = 1_000_000;
+        let start_timestamp: u64 = 100;
+        let end_timestamp: u64 = 1_000;
+        let milestone_hash = BytesN::<32>::from_array(&env, &[1u8; 32]);
+
+        // Mint USDC and register the contract — use mock_all_auths just for setup.
+        env.mock_all_auths();
+        usdc_asset.mint(&creator, &amount);
+        let contract_id = env.register(DisciplrVault, ());
+        let client = DisciplrVaultClient::new(&env, &contract_id);
+
+        env.ledger().set_timestamp(start_timestamp);
+
+        client.create_vault(
+            &usdc_addr,
+            &creator,
+            &amount,
+            &start_timestamp,
+            &end_timestamp,
+            &milestone_hash,
+            &Some(verifier.clone()), // vault.verifier = X
+            &success_dest,
+            &failure_dest,
+        );
+
+        env.ledger().set_timestamp(end_timestamp - 1);
+
+        // Stop mocking auths so that require_auth() is actually enforced.
+        // Y (non_verifier) has no authorization — calling validate_milestone must panic.
+        let env2 = Env::default();
+        let contract_id2 = env2.register(DisciplrVault, ());
+        let client2 = DisciplrVaultClient::new(&env2, &contract_id2);
+
+        // This call is made against a fresh env with no auths — it must panic.
+        client2.validate_milestone(&0u32);
     /// Issue #44: Test that create_vault accepts verifier == creator
     /// and that validate_milestone can be called by the creator in that case.
     #[test]
