@@ -5,6 +5,9 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
 };
 
+/// Upper bound for vault creation amounts to limit pathological transfers.
+const MAX_AMOUNT: i128 = 1_000_000_000_000_000;
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -126,6 +129,9 @@ impl DisciplrVault {
         creator.require_auth();
 
         if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if amount > MAX_AMOUNT {
             return Err(Error::InvalidAmount);
         }
 
@@ -1058,6 +1064,28 @@ mod tests {
             &setup.usdc_token,
             &setup.creator,
             &0i128,
+            &1000,
+            &2000,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #7)")]
+    fn test_create_vault_amount_above_max_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+        let amount_above_max = MAX_AMOUNT
+            .checked_add(1)
+            .expect("MAX_AMOUNT + 1 overflowed");
+
+        client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &amount_above_max,
             &1000,
             &2000,
             &setup.milestone_hash(),
