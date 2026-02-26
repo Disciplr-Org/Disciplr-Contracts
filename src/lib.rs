@@ -33,6 +33,8 @@ pub enum Error {
     InvalidAmount = 7,
     /// start_timestamp must be strictly less than end_timestamp.
     InvalidTimestamps = 8,
+    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
+    DurationTooLong = 9,
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +84,11 @@ pub struct ProductivityVault {
 // Storage keys
 // ---------------------------------------------------------------------------
 
+// Constants to prevent abuse, spam, and potential overflow issues
+pub const MAX_VAULT_DURATION: u64 = 365 * 24 * 60 * 60; // 1 year in seconds
+pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC with 7 decimals
+pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10 million USDC with 7 decimals
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -120,12 +127,27 @@ impl DisciplrVault {
     ) -> Result<u32, Error> {
         creator.require_auth();
 
-        if amount <= 0 {
+        // Validate amount bounds
+        if amount < MIN_AMOUNT {
+            return Err(Error::InvalidAmount);
+        }
+        if amount > MAX_AMOUNT {
             return Err(Error::InvalidAmount);
         }
 
+        // Validate timestamps
+        let current_time = env.ledger().timestamp();
+        if start_timestamp < current_time {
+            return Err(Error::InvalidTimestamp);
+        }
         if end_timestamp <= start_timestamp {
             return Err(Error::InvalidTimestamps);
+        }
+
+        // Validate duration
+        let duration = end_timestamp - start_timestamp;
+        if duration > MAX_VAULT_DURATION {
+            return Err(Error::DurationTooLong);
         }
 
         // Pull USDC from creator into this contract.
