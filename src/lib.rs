@@ -396,7 +396,7 @@ mod tests {
         fn new() -> Self {
             let env = Env::default();
             env.mock_all_auths();
-            
+
             // Set ledger time to 0 so test timestamps work
             env.ledger().set_timestamp(0);
 
