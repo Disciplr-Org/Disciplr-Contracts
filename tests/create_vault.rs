@@ -104,7 +104,7 @@ fn test_amount_above_maximum() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #4)")]
+#[should_panic(expected = "Error(Contract, #9)")]
 fn test_duration_exceeds_max() {
     let (env, client, usdc, _usdc_asset) = setup();
 
