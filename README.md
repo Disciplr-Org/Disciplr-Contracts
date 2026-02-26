@@ -765,3 +765,38 @@ To run tests:
 ```bash
 cargo test
 ```
+
+# Vault Constraints
+
+To reduce abuse, spam, and potential overflow risk, strict bounds are enforced during vault creation.
+
+The following constants were introduced:
+
+```rust
+pub const MAX_VAULT_DURATION: u64 = 365 * 24 * 60 * 60; // 1 year
+pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC (7 decimals)
+pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10 million USDC (7 decimals)
+```
+
+## Validation Rules
+
+During `create_vault`, the contract enforces:
+
+- `amount` must be ≥ `MIN_AMOUNT`
+- `amount` must be ≤ `MAX_AMOUNT`
+- `start_timestamp` must not be in the past
+- `end_timestamp` must be strictly greater than `start_timestamp`
+- `end_timestamp - start_timestamp` must not exceed `MAX_VAULT_DURATION`
+
+All validations occur before event emission or state mutation, ensuring invalid vaults cannot be created.
+
+## Testing & Coverage
+
+Boundary and over-limit cases are fully covered in the tests, including:
+
+- The exact minimum and maximum amount values
+- The amounts below minimum and above maximum
+- The exact maximum duration
+- Duration exceeding maximum
+- Invalid timestamp ordering
+- Past start timestamps
