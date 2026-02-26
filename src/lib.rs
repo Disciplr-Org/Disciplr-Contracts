@@ -144,42 +144,150 @@ impl DisciplrVault {
             status: VaultStatus::Active,
             milestone_validated: false,
         };
+        env.storage()
+            .instance()
+            .set(&DataKey::Vault(vault_id), &vault);
         env.events()
-            .publish((Symbol::new(&env, "vault_created"), vault_id), vault);
+            .publish((Symbol::new(&env, "vault_created"), vault_id), vault_id);
         Ok(vault_id)
     }
 
-    /// Verifier (or authorized party) validates milestone completion.
-    pub fn validate_milestone(env: Env, vault_id: u32) -> bool {
-        // TODO: check vault exists, status is Active, caller is verifier, timestamp < end
-        // TODO: transfer USDC to success_destination, set status Completed
+    /// Verifier (or creator when verifier is None) validates milestone completion.
+    pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&DataKey::Vault(vault_id))
+            .ok_or(Error::VaultNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive);
+        }
+
+        let current = env.ledger().timestamp();
+        if current >= vault.end_timestamp {
+            return Err(Error::MilestoneExpired);
+        }
+
+        if let Some(ref verifier) = vault.verifier {
+            verifier.require_auth();
+        } else {
+            vault.creator.require_auth();
+        }
+
+        vault.milestone_validated = true;
+        env.storage()
+            .instance()
+            .set(&DataKey::Vault(vault_id), &vault);
+
         env.events()
             .publish((Symbol::new(&env, "milestone_validated"), vault_id), ());
-        true
+        Ok(true)
     }
 
-    /// Release funds to success destination (called after validation or by deadline logic).
-    pub fn release_funds(_env: Env, _vault_id: u32, _usdc_token: Address) -> bool {
-        // TODO: require status Active, transfer to success_destination, set Completed
-        true
+    /// Release funds to success destination (after validation, or after deadline when no verifier).
+    pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&DataKey::Vault(vault_id))
+            .ok_or(Error::VaultNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive);
+        }
+
+        let current = env.ledger().timestamp();
+        let can_release = vault.milestone_validated || current > vault.end_timestamp;
+        if !can_release {
+            return Err(Error::NotAuthorized);
+        }
+
+        vault.status = VaultStatus::Completed;
+        env.storage()
+            .instance()
+            .set(&DataKey::Vault(vault_id), &vault);
+
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.success_destination,
+            &vault.amount,
+        );
+
+        env.events()
+            .publish((Symbol::new(&env, "funds_released"), vault_id), ());
+        Ok(true)
     }
 
-    /// Redirect funds to failure destination (e.g. after deadline without validation).
-    pub fn redirect_funds(_env: Env, _vault_id: u32, _usdc_token: Address) -> bool {
-        // TODO: require status Active and past end_timestamp, transfer to failure_destination, set Failed
-        true
+    /// Redirect funds to failure destination after deadline without validation.
+    pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&DataKey::Vault(vault_id))
+            .ok_or(Error::VaultNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive);
+        }
+
+        let current = env.ledger().timestamp();
+        if current <= vault.end_timestamp {
+            return Err(Error::InvalidTimestamp);
+        }
+
+        vault.status = VaultStatus::Failed;
+        env.storage()
+            .instance()
+            .set(&DataKey::Vault(vault_id), &vault);
+
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.failure_destination,
+            &vault.amount,
+        );
+
+        env.events()
+            .publish((Symbol::new(&env, "funds_redirected"), vault_id), ());
+        Ok(true)
     }
 
-    /// Cancel vault and return funds to creator (if allowed by rules).
-    pub fn cancel_vault(_env: Env, _vault_id: u32, _usdc_token: Address) -> bool {
-        // TODO: require creator auth, return USDC to creator, set Cancelled
-        true
+    /// Cancel vault and return funds to creator.
+    pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        let mut vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&DataKey::Vault(vault_id))
+            .ok_or(Error::VaultNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::VaultNotActive);
+        }
+
+        vault.creator.require_auth();
+
+        vault.status = VaultStatus::Cancelled;
+        env.storage()
+            .instance()
+            .set(&DataKey::Vault(vault_id), &vault);
+
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.creator,
+            &vault.amount,
+        );
+
+        env.events()
+            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), ());
+        Ok(true)
     }
 
     /// Return current vault state for a given vault id.
-    /// Placeholder: returns None; full impl would read from storage.
-    pub fn get_vault_state(_env: Env, _vault_id: u32) -> Option<ProductivityVault> {
-        None
+    pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
+        env.storage().instance().get(&DataKey::Vault(vault_id))
     }
 }
 
