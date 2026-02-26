@@ -4,3 +4,4 @@ Cargo.lock
 *.wasm
 test_snapshots/
 *.log
+.claude
