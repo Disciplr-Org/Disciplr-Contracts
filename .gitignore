@@ -2,4 +2,5 @@
 Cargo.lock
 .DS_Store
 *.wasm
+test_snapshots/
 .claude
