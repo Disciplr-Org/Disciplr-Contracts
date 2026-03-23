@@ -9,7 +9,7 @@ use soroban_sdk::{
 };
 
 use disciplr_vault::{
-    DisciplrVault, DisciplrVaultClient, MAX_AMOUNT, MAX_VAULT_DURATION, MIN_AMOUNT,
+    DisciplrVault, DisciplrVaultClient, VaultStatus, MAX_AMOUNT, MAX_VAULT_DURATION, MIN_AMOUNT,
 };
 
 fn setup() -> (
@@ -259,4 +259,42 @@ fn test_valid_zero_verifier_and_normal_duration() {
         &Address::generate(&env),
         &Address::generate(&env),
     );
+}
+
+#[test]
+fn test_get_vault_state_never_created_id_returns_none() {
+    let (_env, client, _usdc, _usdc_asset) = setup();
+
+    assert_eq!(client.vault_count(), 0u32);
+    assert!(client.get_vault_state(&0u32).is_none());
+    assert!(client.get_vault_state(&42u32).is_none());
+}
+
+#[test]
+fn test_get_vault_state_cancelled_vault_remains_readable() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+    usdc_asset.mint(&creator, &(MIN_AMOUNT * 2));
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[9u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    assert_eq!(client.vault_count(), 1u32);
+    client.cancel_vault(&vault_id, &usdc);
+
+    let vault = client.get_vault_state(&vault_id).unwrap();
+    assert_eq!(vault.status, VaultStatus::Cancelled);
+    assert!(client.get_vault_state(&1u32).is_none());
 }
