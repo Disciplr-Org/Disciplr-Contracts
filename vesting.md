@@ -112,20 +112,27 @@ pub fn create_vault(
 
 ### `validate_milestone`
 
-Allows the verifier (or authorized party) to validate milestone completion and release funds.
+Allows the verifier (or authorized party) to validate milestone completion.
 
 ```rust
-pub fn validate_milestone(env: Env, vault_id: u32) -> bool
+pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to validate
 
-**Returns:** `bool` - True if validation successful
+**Returns:** `Result<bool, Error>` - `Ok(true)` if validation successful
 
-**Requirements (TODO):**
+**Errors:**
+- `Error::VaultNotFound` - Vault with given ID does not exist
+- `Error::VaultNotActive` - Vault is not in `Active` status
+- `Error::AlreadyValidated` - Milestone has already been validated for this vault
+- `Error::MilestoneExpired` - Current timestamp is at or past `end_timestamp`
+
+**Requirements:**
 - Vault must exist and be in `Active` status
-- Caller must be the designated verifier (if set)
+- Milestone must not have been previously validated
+- Caller must be the designated verifier (if set) or creator (if no verifier)
 - Current timestamp must be before `end_timestamp`
 
 **Emits:** [`milestone_validated`](#milestone_validated) event
