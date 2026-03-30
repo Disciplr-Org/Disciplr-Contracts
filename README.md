@@ -747,9 +747,9 @@ To reduce abuse, spam, and potential overflow risk, strict bounds are enforced d
 The following constants were introduced:
 
 ```rust
-pub const MAX_VAULT_DURATION: u64 = 365 * 24 * 60 * 60; // 1 year
-pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC (7 decimals)
-pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10 million USDC (7 decimals)
+pub const MAX_VAULT_DURATION: u64 = 365 * 24 * 60 * 60; // 365 days in seconds
+pub const MIN_AMOUNT: i128 = 10_000_000;       // 1 USDC (1 × 10^7 stroops)
+pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10,000,000 USDC (10^13 stroops)
 ```
 
 ## Validation Rules
