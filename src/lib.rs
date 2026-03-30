@@ -111,8 +111,31 @@ impl DisciplrVault {
     /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
     ///
-    /// # Prerequisites
-    /// Creator must have sufficient USDC balance and authorize the transaction.
+    /// * `env` - The Soroban environment.
+    /// * `usdc_token` - The address of the USDC token contract.
+    /// * `creator` - The address that creates and funds the vault.
+    /// * `amount` - The amount of USDC to lock (in stroops).
+    /// * `start_timestamp` - Ledger timestamp when the commitment period starts.
+    /// * `end_timestamp` - Ledger timestamp after which deadline-based release is allowed.
+    /// * `milestone_hash` - 32-byte hash representing the commitment milestone.
+    /// * `verifier` - Optional verifier address; if None, only the creator can validate.
+    /// * `success_destination` - Destination address for funds on success.
+    /// * `failure_destination` - Destination address for funds on failure/redirect.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u32)` - The unique ID of the newly created vault.
+    /// * `Err(Error)` - Possible errors:
+    ///     * `Error::InvalidAmount`: Amount is below `MIN_AMOUNT` or above `MAX_AMOUNT`.
+    ///     * `Error::InvalidTimestamp`: `start_timestamp` is in the past.
+    ///     * `Error::InvalidTimestamps`: `end_timestamp` is not strictly greater than `start_timestamp`.
+    ///     * `Error::DurationTooLong`: Vault duration exceeds `MAX_VAULT_DURATION`.
+    ///
+    /// # Events
+    /// - `vault_created(vault_id, vault_data)`
+    ///
+    /// # Security and Trust
+    /// See [Security and Trust Model](vesting.md#security-and-trust-model) for a detailed analysis of verifier power and mitigations.
     pub fn create_vault(
         env: Env,
         usdc_token: Address,
@@ -195,9 +218,28 @@ impl DisciplrVault {
 
     /// Verifier (or authorized party) validates milestone completion.
     ///
-    /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
-    /// this function. If `verifier` is `None`, only the creator may call it (no validation by
-    /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
+    /// If a `verifier` is designated (via `Some(addr)`), only that address may call this function.
+    /// If `verifier` is `None`, only the creator may call it.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban environment.
+    /// * `vault_id` - The unique identifier of the vault to validate.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(bool)` - `true` if validation was successful.
+    /// * `Err(Error)` - Possible errors:
+    ///     * `Error::VaultNotFound`: No vault exists for the given ID.
+    ///     * `Error::VaultNotActive`: The vault is in a terminal state (Completed, Failed, or Cancelled).
+    ///     * `Error::NotAuthorized`: The caller is not the verifier (or creator if no verifier is set).
+    ///     * `Error::MilestoneExpired`: Current time is at or past the vault's `end_timestamp`.
+    ///
+    /// # Events
+    /// - `milestone_validated(vault_id)`
+    ///
+    /// # Security and Trust
+    /// See [Threat Model: Malicious Verifier](vesting.md#threat-model-malicious-verifier) for trust assumptions regarding the verifier.
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
