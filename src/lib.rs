@@ -107,12 +107,31 @@ pub struct DisciplrVault;
 impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
     ///
-    /// # Validation Rules
-    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
-    /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// # Arguments
     ///
-    /// # Prerequisites
-    /// Creator must have sufficient USDC balance and authorize the transaction.
+    /// * `env` - The Soroban environment.
+    /// * `usdc_token` - The address of the USDC token contract.
+    /// * `creator` - The address that creates and funds the vault.
+    /// * `amount` - The amount of USDC to lock (in stroops).
+    /// * `start_timestamp` - Ledger timestamp when the commitment period starts.
+    /// * `end_timestamp` - Ledger timestamp after which deadline-based release is allowed.
+    /// * `milestone_hash` - 32-byte hash representing the commitment milestone.
+    /// * `verifier` - Optional verifier address; if None, only the creator can validate.
+    /// * `success_destination` - Destination address for funds on success.
+    /// * `failure_destination` - Destination address for funds on failure/redirect.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u32)` - The unique ID of the newly created vault.
+    /// * `Err(Error)` - Possible errors:
+    ///     * `Error::InvalidAmount`: Amount is below `MIN_AMOUNT` or above `MAX_AMOUNT`.
+    ///     * `Error::InvalidTimestamp`: `start_timestamp` is in the past.
+    ///     * `Error::InvalidTimestamps`: `end_timestamp` is not strictly greater than `start_timestamp`.
+    ///     * `Error::DurationTooLong`: Vault duration exceeds `MAX_VAULT_DURATION`.
+    ///
+    /// # Events
+    ///
+    /// * Emits a `vault_created` event containing: `(Symbol::new(&env, "vault_created"), vault_id)` and the `ProductivityVault` record.
     pub fn create_vault(
         env: Env,
         usdc_token: Address,
@@ -195,9 +214,26 @@ impl DisciplrVault {
 
     /// Verifier (or authorized party) validates milestone completion.
     ///
-    /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
-    /// this function. If `verifier` is `None`, only the creator may call it (no validation by
-    /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
+    /// If a `verifier` is designated (via `Some(addr)`), only that address may call this function.
+    /// If `verifier` is `None`, only the creator may call it.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban environment.
+    /// * `vault_id` - The unique identifier of the vault to validate.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(bool)` - `true` if validation was successful.
+    /// * `Err(Error)` - Possible errors:
+    ///     * `Error::VaultNotFound`: No vault exists for the given ID.
+    ///     * `Error::VaultNotActive`: The vault is in a terminal state (Completed, Failed, or Cancelled).
+    ///     * `Error::NotAuthorized`: The caller is not the verifier (or creator if no verifier is set).
+    ///     * `Error::MilestoneExpired`: Current time is at or past the vault's `end_timestamp`.
+    ///
+    /// # Events
+    ///
+    /// * Emits a `milestone_validated` event: `(Symbol::new(&env, "milestone_validated"), vault_id)`.
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -234,7 +270,29 @@ impl DisciplrVault {
     // release_funds
     // -----------------------------------------------------------------------
 
-    /// Release vault funds to `success_destination`.
+    /// Release vault funds to the `success_destination`.
+    ///
+    /// Funds can be released if:
+    /// 1. The milestone has been validated (early release allowed).
+    /// 2. The deadline (`end_timestamp`) has been reached.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban environment.
+    /// * `vault_id` - The unique identifier of the vault.
+    /// * `usdc_token` - The address of the USDC token contract.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(bool)` - `true` if funds were successfully released.
+    /// * `Err(Error)` - Possible errors:
+    ///     * `Error::VaultNotFound`: No vault exists for the given ID.
+    ///     * `Error::VaultNotActive`: The vault is not in the `Active` status.
+    ///     * `Error::NotAuthorized`: Releasing before deadline without milestone validation.
+    ///
+    /// # Events
+    ///
+    /// * Emits a `funds_released` event: `(Symbol::new(&env, "funds_released"), vault_id)` with the released amount.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -277,7 +335,28 @@ impl DisciplrVault {
     // redirect_funds
     // -----------------------------------------------------------------------
 
-    /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    /// Redirect funds to the `failure_destination`.
+    ///
+    /// This is typically called after the deadline passes without milestone validation.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban environment.
+    /// * `vault_id` - The unique identifier of the vault.
+    /// * `usdc_token` - The address of the USDC token contract.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(bool)` - `true` if funds were successfully redirected.
+    /// * `Err(Error)` - Possible errors:
+    ///     * `Error::VaultNotFound`: No vault exists for the given ID.
+    ///     * `Error::VaultNotActive`: The vault is not in the `Active` status.
+    ///     * `Error::InvalidTimestamp`: Called before the `end_timestamp`.
+    ///     * `Error::NotAuthorized`: Milestone was validated; funds should go to success instead.
+    ///
+    /// # Events
+    ///
+    /// * Emits a `funds_redirected` event: `(Symbol::new(&env, "funds_redirected"), vault_id)` with the redirected amount.
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -320,7 +399,27 @@ impl DisciplrVault {
     // cancel_vault
     // -----------------------------------------------------------------------
 
-    /// Cancel vault and return funds to creator.
+    /// Cancel the vault and return funds to the creator.
+    ///
+    /// Only the original vault identifier can authorize this action.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban environment.
+    /// * `vault_id` - The unique identifier of the vault.
+    /// * `usdc_token` - The address of the USDC token contract.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(bool)` - `true` if the vault was successfully cancelled.
+    /// * `Err(Error)` - Possible errors:
+    ///     * `Error::VaultNotFound`: No vault exists for the given ID.
+    ///     * `Error::VaultNotActive`: The vault is not in the `Active` status.
+    ///     * `Error::NotAuthorized`: The caller is not the original creator.
+    ///
+    /// # Events
+    ///
+    /// * Emits a `vault_cancelled` event: `(Symbol::new(&env, "vault_cancelled"), vault_id)`.
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -356,18 +455,31 @@ impl DisciplrVault {
 
     /// Return current vault state, or `None` if no vault record exists for that ID.
     ///
-    /// This contract does not remove vault records during normal lifecycle transitions.
     /// Vaults that are completed, failed, or cancelled remain readable and return
-    /// `Some(ProductivityVault)` with their terminal status.
+    /// their terminal state.
     ///
-    /// Under normal contract operation, `None` therefore means the vault ID was
-    /// never created. If storage were cleared externally, `None` would also be
-    /// observed, but the contract itself has no path that deletes vault records.
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban environment.
+    /// * `vault_id` - The unique identifier of the vault.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(ProductivityVault)` - The vault record if it exists.
+    /// * `None` - If the vault ID was never assigned or does not exist in storage.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
         env.storage().instance().get(&DataKey::Vault(vault_id))
     }
 
-    /// Return the number of vault IDs assigned so far.
+    /// Return the total number of vault IDs assigned so far.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Returns
+    ///
+    /// * `u32` - The sequence count representing the next available vault ID.
     pub fn vault_count(env: Env) -> u32 {
         env.storage()
             .instance()
