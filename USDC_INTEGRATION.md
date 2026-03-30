@@ -20,7 +20,7 @@ pub fn create_vault(
     verifier: Option<Address>,
     success_destination: Address,
     failure_destination: Address,
-) -> u32
+) -> Result<u32, Error>
 ```
 
 ### Token Transfer Mechanism
@@ -51,11 +51,14 @@ The function validates inputs before attempting the transfer:
 
 The function will panic (revert) in the following cases:
 
-| Condition | Error Message |
+| Condition | Error Variant |
 |-----------|---------------|
-| Amount ≤ 0 | "amount must be positive" |
-| end_timestamp ≤ start_timestamp | "end_timestamp must be after start_timestamp" |
-| Insufficient balance | "balance is not sufficient to spend" (from token contract) |
+| Amount < MIN_AMOUNT | `Error::InvalidAmount` |
+| Amount > MAX_AMOUNT | `Error::InvalidAmount` |
+| end_timestamp ≤ start_timestamp | `Error::InvalidTimestamps` |
+| duration > MAX_VAULT_DURATION | `Error::DurationTooLong` |
+| start_timestamp < current_time | `Error::InvalidTimestamp` |
+| Insufficient balance | (from token contract) |
 | Missing authorization | Authorization error from Soroban SDK |
 
 ## Security Considerations
@@ -75,9 +78,9 @@ The function will panic (revert) in the following cases:
    - Implementing a whitelist of approved token contracts
    - Adding admin functions to manage approved tokens
 
-2. **No Refund Logic Yet**: Once funds are transferred, they remain in the contract until release/redirect/cancel functions are implemented
+2. **Full Lifecycle Implemented**: Funds can be released, redirected, or cancelled using the respective functions, all of which are fully implemented and tested.
 
-3. **Vault ID Management**: Currently returns placeholder ID (0). Production implementation needs proper ID allocation and storage.
+3. **Vault ID Management**: Uses an incremental counter stored in instance storage (`DataKey::VaultCount`) to assign unique IDs.
 
 ## Testing
 

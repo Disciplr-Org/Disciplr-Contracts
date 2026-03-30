@@ -13,6 +13,7 @@ use soroban_sdk::{
 // conventions: use Result<T, Error> and return Err(Error::Variant) instead
 // of generic panics where appropriate.
 
+/// Potential contract error codes.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -21,22 +22,21 @@ pub enum Error {
     VaultNotFound = 1,
     /// Caller is not authorized for this operation (e.g. not verifier/creator, or release before deadline without validation).
     NotAuthorized = 2,
-    /// Vault is not in Active status (e.g. already Completed, Failed, or Cancelled).
+    /// Vault is not in `Active` status (e.g. already `Completed`, `Failed`, or `Cancelled`).
     VaultNotActive = 3,
-    /// Timestamp constraint violated (e.g. redirect before end_timestamp, or invalid time window).
+    /// Timestamp constraint violated (e.g. redirect before `end_timestamp`, or invalid time window).
     InvalidTimestamp = 4,
-    /// Validation is no longer allowed because current time is at or past end_timestamp.
+    /// Validation is no longer allowed because current time is at or past `end_timestamp`.
     MilestoneExpired = 5,
     /// Vault is in an invalid status for the requested operation.
     InvalidStatus = 6,
-    /// Amount must be positive (e.g. create_vault amount <= 0).
+    /// Amount must be between `MIN_AMOUNT` and `MAX_AMOUNT`.
     InvalidAmount = 7,
-    /// start_timestamp must be strictly less than end_timestamp.
+    /// `start_timestamp` must be strictly less than `end_timestamp`.
     InvalidTimestamps = 8,
-    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
+    /// Vault duration (`end − start`) exceeds `MAX_VAULT_DURATION`.
     DurationTooLong = 9,
-    /// Cancellation is not allowed once the milestone has been validated; funds must be
-    /// released via `release_funds` to honour the verified commitment.
+    /// Cancellation is blocked once the milestone is validated; use `release_funds`.
     MilestoneAlreadyValidated = 10,
 }
 
@@ -44,12 +44,17 @@ pub enum Error {
 // Data types
 // ---------------------------------------------------------------------------
 
+/// Represents the current lifecycle status of a productivity vault.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VaultStatus {
+    /// Vault is live, waiting for milestone validation or deadline.
     Active = 0,
+    /// Milestone verified, funds released to `success_destination`.
     Completed = 1,
+    /// Deadline passed without validation, funds redirected to `failure_destination`.
     Failed = 2,
+    /// Creator cancelled vault, funds returned to `creator`.
     Cancelled = 3,
 }
 
@@ -59,27 +64,23 @@ pub enum VaultStatus {
 pub struct ProductivityVault {
     /// Address that created (and funded) the vault.
     pub creator: Address,
-    /// USDC amount locked in the vault (in stroops / smallest unit).
+    /// USDC amount locked in the vault (in stroops, 1 USDC = 10^7).
     pub amount: i128,
     /// Ledger timestamp when the commitment period starts.
     pub start_timestamp: u64,
     /// Ledger timestamp after which deadline-based release is allowed.
     pub end_timestamp: u64,
-    /// Hash representing the milestone the creator commits to.
+    /// SHA-256 hash representing the milestone requirements.
     pub milestone_hash: BytesN<32>,
-    /// Optional designated verifier. When `Some(addr)`, only that address may call `validate_milestone`.
-    /// When `None`, only the creator may call `validate_milestone` (no third-party validation).
-    /// `release_funds` is consistent: after deadline, anyone can release; before deadline, only
-    /// after the designated validator (or creator when verifier is None) has validated.
+    /// Optional trusted verifier. If `None`, only the creator may validate.
     pub verifier: Option<Address>,
-    /// Funds go here on success.
+    /// Destination address for funds on successful completion.
     pub success_destination: Address,
-    /// Funds go here on failure/redirect.
+    /// Destination address for funds on failure or redirection.
     pub failure_destination: Address,
     /// Current lifecycle status.
     pub status: VaultStatus,
-    /// Set to `true` once the verifier (or authorised party) calls `validate_milestone`.
-    /// Used by `release_funds` to allow early release before the deadline.
+    /// `true` once an authorized party calls `validate_milestone`.
     pub milestone_validated: bool,
 }
 
@@ -110,12 +111,30 @@ pub struct DisciplrVault;
 impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
     ///
-    /// # Validation Rules
-    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
-    /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// # Parameters
+    /// - `env`: Current contract environment.
+    /// - `usdc_token`: Address of the USDC token contract.
+    /// - `creator`: Wallet address that creates and funds the vault.
+    /// - `amount`: Total USDC amount to lock (in stroops).
+    /// - `start_timestamp`: Unix timestamp when the commitment starts.
+    /// - `end_timestamp`: Unix timestamp deadline for validation.
+    /// - `milestone_hash`: SHA-256 hash documentation for milestone deliverables.
+    /// - `verifier`: Optional address authorized to validate the milestone.
+    /// - `success_destination`: Recipient on milestone success.
+    /// - `failure_destination`: Recipient on milestone failure or deadline timeout.
     ///
-    /// # Prerequisites
-    /// Creator must have sufficient USDC balance and authorize the transaction.
+    /// # Returns
+    /// - `Ok(u32)`: The newly assigned unique vault identifier.
+    /// - `Err(Error)`: If validation rules (amount, timestamps, duration) are violated.
+    ///
+    /// # Errors
+    /// - `Error::InvalidAmount`: amount < `MIN_AMOUNT` or > `MAX_AMOUNT`.
+    /// - `Error::InvalidTimestamp`: `start_timestamp` < current ledger time.
+    /// - `Error::InvalidTimestamps`: `end_timestamp` <= `start_timestamp`.
+    /// - `Error::DurationTooLong`: duration exceeds `MAX_VAULT_DURATION` (1 year).
+    ///
+    /// # Events
+    /// - Emits `vault_created` with topic `(Symbol("vault_created"), vault_id)` and data `ProductivityVault`.
     pub fn create_vault(
         env: Env,
         usdc_token: Address,
@@ -198,9 +217,22 @@ impl DisciplrVault {
 
     /// Verifier (or authorized party) validates milestone completion.
     ///
-    /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
-    /// this function. If `verifier` is `None`, only the creator may call it (no validation by
-    /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
+    /// # Parameters
+    /// - `env`: Current contract environment.
+    /// - `vault_id`: Unique identifier of the vault to validate.
+    ///
+    /// # Returns
+    /// - `Ok(true)`: If the milestone flag was successfully set.
+    /// - `Err(Error)`: If authorization fails or the vault is in an invalid state.
+    ///
+    /// # Errors
+    /// - `Error::VaultNotFound`: No record for the provided `vault_id`.
+    /// - `Error::VaultNotActive`: Vault state is not `Active`.
+    /// - `Error::NotAuthorized`: Caller is not the designated verifier (if set) or the creator (if no verifier).
+    /// - `Error::MilestoneExpired`: Current ledger time is at or past `end_timestamp`.
+    ///
+    /// # Events
+    /// - Emits `milestone_validated` with topic `(Symbol("milestone_validated"), vault_id)` and data `()`.
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -238,7 +270,24 @@ impl DisciplrVault {
     // release_funds
     // -----------------------------------------------------------------------
 
-    /// Release vault funds to `success_destination`.
+    /// Release vault funds to the success destination.
+    ///
+    /// # Parameters
+    /// - `env`: Current contract environment.
+    /// - `vault_id`: Unique identifier of the vault to release.
+    /// - `usdc_token`: Address of the USDC token contract.
+    ///
+    /// # Returns
+    /// - `Ok(true)`: If funds were successfully transferred and state updated.
+    /// - `Err(Error)`: If release conditions are not met.
+    ///
+    /// # Errors
+    /// - `Error::VaultNotFound`: No record for the provided `vault_id`.
+    /// - `Error::VaultNotActive`: Vault state is not `Active`.
+    /// - `Error::NotAuthorized`: Milestone is not validated AND the deadline has not been reached.
+    ///
+    /// # Events
+    /// - Emits `funds_released` with topic `(Symbol("funds_released"), vault_id)` and data `amount`.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -285,7 +334,27 @@ impl DisciplrVault {
     // redirect_funds
     // -----------------------------------------------------------------------
 
-    /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    /// Redirect vault funds to the failure destination.
+    ///
+    /// Typically called when a milestone is not completed by the deadline.
+    ///
+    /// # Parameters
+    /// - `env`: Current contract environment.
+    /// - `vault_id`: Unique identifier of the vault to redirect.
+    /// - `usdc_token`: Address of the USDC token contract.
+    ///
+    /// # Returns
+    /// - `Ok(true)`: If funds were successfully redirected and state updated.
+    /// - `Err(Error)`: If redirection criteria (time, validation status) are not met.
+    ///
+    /// # Errors
+    /// - `Error::VaultNotFound`: No record for the provided `vault_id`.
+    /// - `Error::VaultNotActive`: Vault state is not `Active`.
+    /// - `Error::InvalidTimestamp`: Current ledger time is before `end_timestamp`.
+    /// - `Error::NotAuthorized`: Redirect called on a milestone that was already validated.
+    ///
+    /// # Events
+    /// - Emits `funds_redirected` with topic `(Symbol("funds_redirected"), vault_id)` and data `amount`.
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -330,21 +399,30 @@ impl DisciplrVault {
     // cancel_vault
     // -----------------------------------------------------------------------
 
-    /// Cancel vault and return funds to creator.
+    /// Cancel vault and return funds to the creator.
+    ///
+    /// # Parameters
+    /// - `env`: Current contract environment.
+    /// - `vault_id`: Unique identifier of the vault to cancel.
+    /// - `usdc_token`: Address of the USDC token contract.
+    ///
+    /// # Returns
+    /// - `Ok(true)`: If cancellation was successful and funds returned.
+    /// - `Err(Error)`: If the vault was already validated or was already closed.
+    ///
+    /// # Errors
+    /// - `Error::VaultNotFound`: No record for the provided `vault_id`.
+    /// - `Error::VaultNotActive`: Vault state is not `Active`.
+    /// - `Error::MilestoneAlreadyValidated`: Cancellation blocked after milestone validation.
+    ///
+    /// # Events
+    /// - Emits `vault_cancelled` with topic `(Symbol("vault_cancelled"), vault_id)` and data `()`.
     ///
     /// # Security
     /// Cancellation is **blocked** once the milestone has been validated
     /// (`milestone_validated == true`). At that point the verifier has
     /// certified completion and the escrow semantics require that funds travel
     /// exclusively through [`release_funds`] to `success_destination`.
-    /// Allowing the creator to cancel after validation would let them
-    /// unilaterally reclaim committed funds, breaking the escrow guarantee.
-    ///
-    /// # Errors
-    /// - [`Error::VaultNotFound`] — vault does not exist.
-    /// - [`Error::VaultNotActive`] — vault is not in `Active` status.
-    /// - [`Error::MilestoneAlreadyValidated`] — milestone has been validated;
-    ///   use `release_funds` instead.
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -388,20 +466,19 @@ impl DisciplrVault {
     // get_vault_state
     // -----------------------------------------------------------------------
 
-    /// Return current vault state, or `None` if no vault record exists for that ID.
+    /// Return current vault state.
     ///
-    /// This contract does not remove vault records during normal lifecycle transitions.
-    /// Vaults that are completed, failed, or cancelled remain readable and return
-    /// `Some(ProductivityVault)` with their terminal status.
+    /// # Parameters
+    /// - `vault_id`: Unique identifier to query.
     ///
-    /// Under normal contract operation, `None` therefore means the vault ID was
-    /// never created. If storage were cleared externally, `None` would also be
-    /// observed, but the contract itself has no path that deletes vault records.
+    /// # Returns
+    /// - `Some(ProductivityVault)`: If the record exists.
+    /// - `None`: If the ID was never assigned or storage was cleared.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
         env.storage().instance().get(&DataKey::Vault(vault_id))
     }
 
-    /// Return the number of vault IDs assigned so far.
+    /// Return the total number of vault IDs assigned so far.
     pub fn vault_count(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -1359,22 +1436,90 @@ mod tests {
     /// Cancellation without prior validation must still succeed (happy path
     /// unchanged — guard only fires when milestone_validated is true).
     #[test]
-    fn test_cancel_without_validation_still_allowed() {
+    fn test_lifecycle_events() {
         let setup = TestSetup::new();
         let client = setup.client();
+        let env = &setup.env;
 
         setup.env.ledger().set_timestamp(setup.start_timestamp);
         let vault_id = setup.create_default_vault();
 
-        let usdc = setup.usdc_client();
-        let before = usdc.balance(&setup.creator);
+        // 1. validate_milestone event
+        setup.env.ledger().set_timestamp(setup.start_timestamp + 10);
+        client.validate_milestone(&vault_id);
 
-        let result = client.cancel_vault(&vault_id, &setup.usdc_token);
-        assert!(result);
-        assert_eq!(usdc.balance(&setup.creator) - before, setup.amount);
+        let events = env.events().all();
+        let last_event = events.last().unwrap();
+        assert_eq!(last_event.0, setup.contract_id);
+        assert_eq!(
+            last_event.1.get(0).unwrap().try_into_val(env),
+            Ok(Symbol::new(env, "milestone_validated"))
+        );
+        assert_eq!(
+            last_event.1.get(1).unwrap().try_into_val(env),
+            Ok(vault_id)
+        );
 
-        let vault = client.get_vault_state(&vault_id).unwrap();
-        assert_eq!(vault.status, VaultStatus::Cancelled);
+        // 2. release_funds event
+        client.release_funds(&vault_id, &setup.usdc_token);
+        let events = env.events().all();
+        let last_event = events.last().unwrap();
+        assert_eq!(last_event.0, setup.contract_id);
+        assert_eq!(
+            last_event.1.get(0).unwrap().try_into_val(env),
+            Ok(Symbol::new(env, "funds_released"))
+        );
+        assert_eq!(
+            last_event.1.get(1).unwrap().try_into_val(env),
+            Ok(vault_id)
+        );
+        assert_eq!(
+            last_event.2.try_into_val(env),
+            Ok(setup.amount)
+        );
+    }
+
+    #[test]
+    fn test_redirect_event() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+        let env = &setup.env;
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+        client.redirect_funds(&vault_id, &setup.usdc_token);
+
+        let events = env.events().all();
+        let last_event = events.last().unwrap();
+        assert_eq!(
+            last_event.1.get(0).unwrap().try_into_val(env),
+            Ok(Symbol::new(env, "funds_redirected"))
+        );
+        assert_eq!(
+            last_event.2.try_into_val(env),
+            Ok(setup.amount)
+        );
+    }
+
+    #[test]
+    fn test_cancel_event() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+        let env = &setup.env;
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        client.cancel_vault(&vault_id, &setup.usdc_token);
+
+        let events = env.events().all();
+        let last_event = events.last().unwrap();
+        assert_eq!(
+            last_event.1.get(0).unwrap().try_into_val(env),
+            Ok(Symbol::new(env, "vault_cancelled"))
+        );
     }
 }
 

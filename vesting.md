@@ -140,7 +140,7 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error>
 
 ### `release_funds`
 
-Releases locked funds to the success destination (typically after validation).
+Releases locked funds to the success destination (typically after validation or deadline reached).
 
 ```rust
 pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
@@ -158,6 +158,8 @@ pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<boo
 - Either `milestone_validated == true` **or** `current timestamp >= end_timestamp`; otherwise returns `Error::NotAuthorized`
 - No caller authorization required — release is state-driven
 - Transfers USDC to `success_destination`; sets status to `Completed`
+
+**Emits:** `funds_released` event with topic `(Symbol("funds_released"), vault_id)` and data `amount`.
 
 ---
 
@@ -182,6 +184,8 @@ pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bo
 - `milestone_validated` must be `false`; if already validated returns `Error::NotAuthorized` (use `release_funds` instead)
 - Transfers USDC to `failure_destination`; sets status to `Failed`
 
+**Emits:** `funds_redirected` event with topic `(Symbol("funds_redirected"), vault_id)` and data `amount`.
+
 ---
 
 ### `cancel_vault`
@@ -204,6 +208,8 @@ pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool
 - Milestone must **not** have been validated; if `milestone_validated == true` returns `Error::MilestoneAlreadyValidated`
 - Returns USDC to creator
 - Sets status to `Cancelled`
+
+**Emits:** `vault_cancelled` event with topic `(Symbol("vault_cancelled"), vault_id)` and data `()`.
 
 > **Security note:** Once the verifier (or authorised party) has called
 > `validate_milestone`, the escrow outcome is determined. The creator is
