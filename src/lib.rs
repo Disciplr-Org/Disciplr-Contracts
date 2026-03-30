@@ -36,6 +36,11 @@ pub enum Error {
     /// Cancellation is not allowed once the milestone has been validated; funds must be
     /// released via `release_funds` to honour the verified commitment.
     MilestoneAlreadyValidated = 9,
+    /// The verifier address must not equal `success_destination` or `failure_destination`.
+    /// Allowing a verifier to also be a fund recipient would create a direct collusion
+    /// incentive: the verifier could validate (or withhold validation) to steer funds
+    /// toward themselves.
+    VerifierIsDestination = 10,
 }
 
 // ---------------------------------------------------------------------------
@@ -108,8 +113,11 @@ impl DisciplrVault {
     /// Create a new productivity vault. Caller must have approved USDC transfer to this contract.
     ///
     /// # Validation Rules
-    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
+    /// - `amount` must be positive; otherwise panics (see known limitation in `Error::InvalidAmount`).
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - When `verifier` is `Some(addr)`, `addr` must differ from both `success_destination` and
+    ///   `failure_destination`; otherwise returns `Error::VerifierIsDestination`. This prevents a
+    ///   direct collusion incentive where the verifier controls fund routing to themselves.
     pub fn create_vault(
         env: Env,
         usdc_token: Address,
@@ -130,6 +138,17 @@ impl DisciplrVault {
 
         if end_timestamp <= start_timestamp {
             return Err(Error::InvalidTimestamps);
+        }
+
+        // SECURITY NOTE: Verifier–destination separation.
+        // A verifier that is also a fund recipient has a direct financial incentive to
+        // validate (or block validation) in order to steer funds toward themselves.
+        // We reject such configurations at creation time so the collusion surface is
+        // eliminated before any funds are transferred.
+        if let Some(ref v) = verifier {
+            if v == &success_destination || v == &failure_destination {
+                return Err(Error::VerifierIsDestination);
+            }
         }
 
         // SECURITY NOTE: Pull-over-Push pattern.
@@ -1298,5 +1317,130 @@ mod tests {
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Cancelled);
+    }
+
+    // -----------------------------------------------------------------------
+    // create_vault: verifier-destination collision guard
+    // (Error::VerifierIsDestination, code #10)
+    // -----------------------------------------------------------------------
+
+    /// Happy path: verifier is a distinct address from both destinations — vault
+    /// creation succeeds as usual.
+    #[test]
+    fn test_create_vault_verifier_distinct_from_destinations_succeeds() {
+        let setup = TestSetup::new();
+        // setup.verifier, setup.success_dest, setup.failure_dest are all distinct.
+        let vault_id = setup.create_default_vault();
+        let vault = setup.client().get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.verifier, Some(setup.verifier));
+        assert_eq!(vault.status, VaultStatus::Active);
+    }
+
+    /// Reject: verifier == success_destination. The verifier could validate the
+    /// milestone to route funds to themselves.
+    #[test]
+    fn test_create_vault_verifier_equals_success_destination_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // Use success_dest as the verifier.
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &Some(setup.success_dest.clone()), // verifier == success_destination
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+
+        assert!(result.is_err(), "verifier == success_destination must be rejected");
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            Error::VerifierIsDestination,
+        );
+    }
+
+    /// Reject: verifier == failure_destination. The verifier could withhold
+    /// validation to let the deadline lapse and route funds to themselves.
+    #[test]
+    fn test_create_vault_verifier_equals_failure_destination_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // Use failure_dest as the verifier.
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &Some(setup.failure_dest.clone()), // verifier == failure_destination
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+
+        assert!(result.is_err(), "verifier == failure_destination must be rejected");
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            Error::VerifierIsDestination,
+        );
+    }
+
+    /// No verifier (None) is always valid regardless of destination addresses —
+    /// the guard only applies when a verifier is explicitly set.
+    #[test]
+    fn test_create_vault_no_verifier_destination_overlap_allowed() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // verifier = None, even if success_dest == failure_dest would be unusual
+        // but that is not what this guard covers. Here we simply confirm None passes.
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+
+        assert!(result.is_ok(), "verifier=None must not trigger VerifierIsDestination");
+    }
+
+    /// Edge case: verifier is Some but equals only the failure_destination while
+    /// success_destination is a different address — still rejected.
+    #[test]
+    fn test_create_vault_verifier_equals_only_failure_dest_still_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        // A brand-new address for success_dest to ensure it differs from verifier,
+        // while failure_dest equals the verifier.
+        let other_success = Address::generate(&setup.env);
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &Some(setup.failure_dest.clone()),
+            &other_success,
+            &setup.failure_dest,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            Error::VerifierIsDestination,
+        );
     }
 }

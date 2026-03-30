@@ -107,7 +107,8 @@ pub fn create_vault(
 
 **Requirements:**
 - Caller must authorize the transaction (`creator.require_auth()`)
-- `end_timestamp` must be greater than `start_timestamp`
+- `end_timestamp` must be greater than `start_timestamp`; otherwise returns `Error::InvalidTimestamps`
+- When `verifier` is `Some(addr)`, `addr` must differ from both `success_destination` and `failure_destination`; otherwise returns `Error::VerifierIsDestination`
 - USDC transfer must be approved by creator before calling
 
 **Emits:** [`vault_created`](#vault_created) event
@@ -320,8 +321,9 @@ This section outlines the security assumptions, trust model, and known limitatio
 ### Trust Model
 
 1. **Verifier Trust (Critical)**: When a `verifier` is designated (via `Some(Address)`), that address has **absolute power** to validate the milestone and cause funds to be released to the `success_destination` before the deadline. If the verifier is compromised or malicious, they can release funds prematurely or to a non-compliant recipient.
-2. **Creator Power**: If no `verifier` is set (`None`), only the `creator` can validate the milestone. The `creator` can cancel the vault while it is still `Active` **and** the milestone has not yet been validated. Once validation has occurred (regardless of who validated), cancellation is blocked; funds may only leave via `release_funds`.
-3. **Immutable Destinations**: Once a vault is created, the `success_destination` and `failure_destination` are immutable. This prevents redirection of funds after the vault is funded, assuming the core contract logic remains secure.
+2. **Verifier–Destination Separation (Enforced)**: The contract rejects any configuration where the `verifier` address equals `success_destination` or `failure_destination`. A verifier that is also a fund recipient has a direct financial incentive to manipulate validation outcomes in their favour. This is rejected at creation time via `Error::VerifierIsDestination` (code 10), before any funds are transferred.
+3. **Creator Power**: If no `verifier` is set (`None`), only the `creator` can validate the milestone. The `creator` can cancel the vault while it is still `Active` **and** the milestone has not yet been validated. Once validation has occurred (regardless of who validated), cancellation is blocked; funds may only leave via `release_funds`.
+4. **Immutable Destinations**: Once a vault is created, the `success_destination` and `failure_destination` are immutable. This prevents redirection of funds after the vault is funded, assuming the core contract logic remains secure.
 
 ### Security Assumptions
 
@@ -509,3 +511,4 @@ disciplr-contracts/
 | Version | Changes |
 |---------|---------|
 | 0.1.0 | Initial release with basic vault structure, stubbed implementations |
+| 0.2.0 | Added `Error::VerifierIsDestination` (code 10); `create_vault` now rejects configs where `verifier` equals `success_destination` or `failure_destination` to eliminate the verifier-collusion incentive surface. |
