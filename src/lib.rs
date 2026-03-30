@@ -411,7 +411,7 @@ mod tests {
     impl TestSetup {
         fn new() -> Self {
             let env = Env::default();
-            env.mock_all_auths();
+            // env.mock_all_auths(); // Removed to use explicit auth
 
             // Set ledger time to 0 so test timestamps work
             env.ledger().set_timestamp(0);
