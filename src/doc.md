@@ -11,7 +11,9 @@ This change ensures that `release_funds` and `redirect_funds` can each only succ
 
 ---
 
-## Implementation
+## Security and Trust
+
+The Disciplr Vault relies on a designated `verifier` for milestone validation. For a detailed analysis of the trust assumptions, malicious verifier threat model, and available mitigations, please refer to the [Security and Trust Model](vesting.md#security-and-trust-model) in the project documentation.
 
 ### Centralized Idempotency Guard
 
