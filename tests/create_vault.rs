@@ -283,7 +283,7 @@ fn test_get_vault_state_cancelled_vault_remains_readable() {
         &usdc,
         &creator,
         &MIN_AMOUNT,
-        &now,
+        &(now + 1000),
         &(now + 86_400),
         &BytesN::from_array(&env, &[9u8; 32]),
         &None,
@@ -292,9 +292,104 @@ fn test_get_vault_state_cancelled_vault_remains_readable() {
     );
 
     assert_eq!(client.vault_count(), 1u32);
+    // Current time is 'now', which is < now + 1000.
     client.cancel_vault(&vault_id, &usdc);
 
     let vault = client.get_vault_state(&vault_id).unwrap();
     assert_eq!(vault.status, VaultStatus::Cancelled);
     assert!(client.get_vault_state(&1u32).is_none());
+}
+
+#[test]
+fn test_cancel_before_start() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_000_000u64;
+    env.ledger().set_timestamp(now);
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    // start_timestamp = now + 1000
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &(now + 1000),
+        &(now + 5000),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    // Current time is 'now', which is < now + 1000.
+    let result = client.cancel_vault(&vault_id, &usdc);
+    assert!(result);
+    
+    let vault = client.get_vault_state(&vault_id).unwrap();
+    assert_eq!(vault.status, VaultStatus::Cancelled);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_cancel_after_start_timestamp_fails() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_000_000u64;
+    env.ledger().set_timestamp(now);
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let start_timestamp = now + 1000;
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &start_timestamp,
+        &(now + 5000),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    // Advance ledger to start_timestamp
+    env.ledger().set_timestamp(start_timestamp);
+
+    // Should fail with CancellationNotAllowed (10)
+    client.cancel_vault(&vault_id, &usdc);
+}
+
+#[test]
+fn test_sequential_vault_ids() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = env.ledger().timestamp();
+    let milestone = BytesN::from_array(&env, &[0u8; 32]);
+    let success = Address::generate(&env);
+    let failure = Address::generate(&env);
+
+    // Mint enough USDC for 5 vaults.
+    usdc_asset.mint(&creator, &(MIN_AMOUNT * 5));
+
+    for i in 0..5 {
+        let id = client.create_vault(
+            &usdc,
+            &creator,
+            &MIN_AMOUNT,
+            &now,
+            &(now + 86400),
+            &milestone,
+            &None,
+            &success,
+            &failure,
+        );
+        assert_eq!(id, i as u32);
+        
+        let vault = client.get_vault_state(&id).unwrap();
+        assert_eq!(vault.amount, MIN_AMOUNT);
+    }
+
+    assert_eq!(client.vault_count(), 5);
 }

@@ -35,6 +35,8 @@ pub enum Error {
     InvalidTimestamps = 8,
     /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
     DurationTooLong = 9,
+    /// Cancellation is not allowed because the vault's start_timestamp has been reached or passed.
+    CancellationNotAllowed = 10,
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +108,11 @@ pub struct DisciplrVault;
 #[contractimpl]
 impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
+    /// Returns a unique, strictly monotonic `u32` vault ID starting from 0.
+    ///
+    /// # Vault ID Generation
+    /// Assigns the current `VaultCount` as the ID, then increments it for the next vault.
+    /// This ensures 0-indexed, sequential, and atomic assignment of IDs.
     ///
     /// # Validation Rules
     /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
@@ -333,6 +340,11 @@ impl DisciplrVault {
 
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive);
+        }
+
+        // Cancellation is only allowed before the commitment period starts.
+        if env.ledger().timestamp() >= vault.start_timestamp {
+            return Err(Error::CancellationNotAllowed);
         }
 
         let token_client = token::Client::new(&env, &usdc_token);
@@ -947,7 +959,7 @@ mod tests {
         let setup = TestSetup::new();
         let client = setup.client();
 
-        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        setup.env.ledger().set_timestamp(setup.start_timestamp - 1);
         let vault_id = setup.create_default_vault();
 
         let usdc = setup.usdc_client();
@@ -1213,7 +1225,7 @@ mod tests {
     fn test_cancel_vault_when_cancelled_fails() {
         let setup = TestSetup::new();
         let client = setup.client();
-        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        setup.env.ledger().set_timestamp(setup.start_timestamp - 1);
         let vault_id = setup.create_default_vault();
 
         // Cancel it
@@ -1227,7 +1239,7 @@ mod tests {
     #[should_panic]
     fn test_cancel_vault_non_creator_fails() {
         let setup = TestSetup::new();
-        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        setup.env.ledger().set_timestamp(setup.start_timestamp - 1);
         let vault_id = setup.create_default_vault();
 
         // Try to cancel with a different address
