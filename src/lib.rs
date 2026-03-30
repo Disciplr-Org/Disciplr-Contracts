@@ -105,14 +105,26 @@ pub struct DisciplrVault;
 
 #[contractimpl]
 impl DisciplrVault {
-    /// Create a new productivity vault. Transfers USDC from creator to contract.
+    /// @notice Create a new productivity vault and lock USDC funds.
+    /// @dev Transfers USDC from creator to contract. Uses `require_auth` on creator.
     ///
-    /// # Validation Rules
-    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
-    /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// @param env The contract environment.
+    /// @param usdc_token The address of the USDC token contract.
+    /// @param creator The address that funds and owns the vault.
+    /// @param amount The amount of USDC to lock (in stroops).
+    /// @param start_timestamp Unix timestamp when the vault commitment starts.
+    /// @param end_timestamp Unix timestamp deadline for milestone validation.
+    /// @param milestone_hash SHA-256 hash of the milestone requirements.
+    /// @param verifier Optional address of the third-party verifier.
+    /// @param success_destination Address to receive funds on successful completion.
+    /// @param failure_destination Address to receive funds on failure/redirect.
     ///
-    /// # Prerequisites
-    /// Creator must have sufficient USDC balance and authorize the transaction.
+    /// @return vault_id The unique identifier for the new vault.
+    ///
+    /// @error Error::InvalidAmount If amount is outside allowed bounds [MIN_AMOUNT, MAX_AMOUNT].
+    /// @error Error::InvalidTimestamp If start_timestamp is in the past.
+    /// @error Error::InvalidTimestamps If end_timestamp <= start_timestamp.
+    /// @error Error::DurationTooLong If vault duration exceeds MAX_VAULT_DURATION.
     pub fn create_vault(
         env: Env,
         usdc_token: Address,
@@ -193,11 +205,18 @@ impl DisciplrVault {
     // validate_milestone
     // -----------------------------------------------------------------------
 
-    /// Verifier (or authorized party) validates milestone completion.
+    /// @notice Validate milestone completion for an active vault.
+    /// @dev Allows the verifier (or creator if no verifier specified) to flag a milestone as successful.
     ///
-    /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
-    /// this function. If `verifier` is `None`, only the creator may call it (no validation by
-    /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
+    /// @param env The contract environment.
+    /// @param vault_id The unique identifier of the target vault.
+    ///
+    /// @return success True if validation was successfully recorded.
+    ///
+    /// @error Error::VaultNotFound If the vault_id does not exist.
+    /// @error Error::VaultNotActive If the vault is already in a terminal state.
+    /// @error Error::NotAuthorized If the caller is not the designated verifier or creator.
+    /// @error Error::MilestoneExpired If the current time is at or past the end_timestamp.
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -234,7 +253,18 @@ impl DisciplrVault {
     // release_funds
     // -----------------------------------------------------------------------
 
-    /// Release vault funds to `success_destination`.
+    /// @notice Release locked funds to the success destination.
+    /// @dev May be called after successful milestone validation OR after the deadline has passed.
+    ///
+    /// @param env The contract environment.
+    /// @param vault_id The unique identifier of the target vault.
+    /// @param usdc_token The address of the USDC token contract.
+    ///
+    /// @return success True if funds were successfully transferred.
+    ///
+    /// @error Error::VaultNotFound If the vault_id does not exist.
+    /// @error Error::VaultNotActive If the vault is already in a terminal state.
+    /// @error Error::NotAuthorized If called before both validation and deadline.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -277,7 +307,19 @@ impl DisciplrVault {
     // redirect_funds
     // -----------------------------------------------------------------------
 
-    /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    /// @notice Redirect locked funds to the failure destination.
+    /// @dev May ONLY be called after the deadline has passed without a successful milestone validation.
+    ///
+    /// @param env The contract environment.
+    /// @param vault_id The unique identifier of the target vault.
+    /// @param usdc_token The address of the USDC token contract.
+    ///
+    /// @return success True if funds were successfully redirected.
+    ///
+    /// @error Error::VaultNotFound If the vault_id does not exist.
+    /// @error Error::VaultNotActive If the vault is already in a terminal state.
+    /// @error Error::InvalidTimestamp If called before the end_timestamp.
+    /// @error Error::NotAuthorized If the milestone has already been validated.
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -320,7 +362,18 @@ impl DisciplrVault {
     // cancel_vault
     // -----------------------------------------------------------------------
 
-    /// Cancel vault and return funds to creator.
+    /// @notice Cancel an active vault and return funds to the creator.
+    /// @dev Requires `require_auth` on the vault creator.
+    ///
+    /// @param env The contract environment.
+    /// @param vault_id The unique identifier of the target vault.
+    /// @param usdc_token The address of the USDC token contract.
+    ///
+    /// @return success True if funds were successfully returned.
+    ///
+    /// @error Error::VaultNotFound If the vault_id does not exist.
+    /// @error Error::NotAuthorized If the caller is not the vault creator.
+    /// @error Error::VaultNotActive If the vault is already in a terminal state.
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -354,20 +407,21 @@ impl DisciplrVault {
     // get_vault_state
     // -----------------------------------------------------------------------
 
-    /// Return current vault state, or `None` if no vault record exists for that ID.
+    /// @notice Retrieve the current state of a specific vault.
     ///
-    /// This contract does not remove vault records during normal lifecycle transitions.
-    /// Vaults that are completed, failed, or cancelled remain readable and return
-    /// `Some(ProductivityVault)` with their terminal status.
+    /// @param env The contract environment.
+    /// @param vault_id The unique identifier of the target vault.
     ///
-    /// Under normal contract operation, `None` therefore means the vault ID was
-    /// never created. If storage were cleared externally, `None` would also be
-    /// observed, but the contract itself has no path that deletes vault records.
+    /// @return vault Optional record containing vault details and current status.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
         env.storage().instance().get(&DataKey::Vault(vault_id))
     }
 
-    /// Return the number of vault IDs assigned so far.
+    /// @notice Return the number of vaults created.
+    ///
+    /// @param env The contract environment.
+    ///
+    /// @return count The total number of vault IDs assigned so far.
     pub fn vault_count(env: Env) -> u32 {
         env.storage()
             .instance()
