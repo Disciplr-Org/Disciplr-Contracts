@@ -72,12 +72,12 @@ pub enum VaultStatus {
 }
 ```
 
-| Status | Description |
-|--------|-------------|
-| `Active` | Vault is live, waiting for milestone validation or deadline |
-| `Completed` | Milestone verified, funds released to success destination |
-| `Failed` | Deadline passed without validation, funds redirected |
-| `Cancelled` | Creator cancelled vault, funds returned |
+| Status      | Description                                                 |
+| ----------- | ----------------------------------------------------------- |
+| `Active`    | Vault is live, waiting for milestone validation or deadline |
+| `Completed` | Milestone verified, funds released to success destination   |
+| `Failed`    | Deadline passed without validation, funds redirected        |
+| `Cancelled` | Creator cancelled vault, funds returned                     |
 
 ### ProductivityVault Struct
 
@@ -98,17 +98,17 @@ pub struct ProductivityVault {
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `creator` | `Address` | Wallet address that created the vault |
-| `amount` | `i128` | Total USDC amount locked (in stroops, 1 USDC = 10^7 stroops) |
-| `start_timestamp` | `u64` | Unix timestamp (seconds) when vault becomes active |
-| `end_timestamp` | `u64` | Unix timestamp (seconds) deadline for milestone validation |
-| `milestone_hash` | `BytesN<32>` | SHA-256 hash documenting milestone requirements |
-| `verifier` | `Option<Address>` | Optional trusted party who can validate milestones |
-| `success_destination` | `Address` | Recipient address on successful milestone completion |
-| `failure_destination` | `Address` | Recipient address when milestone is not completed |
-| `status` | `VaultStatus` | Current lifecycle state of the vault |
+| Field                 | Type              | Description                                                  |
+| --------------------- | ----------------- | ------------------------------------------------------------ |
+| `creator`             | `Address`         | Wallet address that created the vault                        |
+| `amount`              | `i128`            | Total USDC amount locked (in stroops, 1 USDC = 10^7 stroops) |
+| `start_timestamp`     | `u64`             | Unix timestamp (seconds) when vault becomes active           |
+| `end_timestamp`       | `u64`             | Unix timestamp (seconds) deadline for milestone validation   |
+| `milestone_hash`      | `BytesN<32>`      | SHA-256 hash documenting milestone requirements              |
+| `verifier`            | `Option<Address>` | Optional trusted party who can validate milestones           |
+| `success_destination` | `Address`         | Recipient address on successful milestone completion         |
+| `failure_destination` | `Address`         | Recipient address when milestone is not completed            |
+| `status`              | `VaultStatus`     | Current lifecycle state of the vault                         |
 
 ---
 
@@ -133,6 +133,7 @@ pub fn create_vault(
 ```
 
 **Parameters:**
+
 - `creator`: Address of the vault creator (must authorize transaction)
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
@@ -145,6 +146,7 @@ pub fn create_vault(
 **Returns:** `u32` - Unique vault identifier
 
 **Requirements:**
+
 - Caller must authorize the transaction (`creator.require_auth()`)
 - `end_timestamp` must be greater than `start_timestamp`
 - USDC transfer must be approved by creator before calling
@@ -162,11 +164,13 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> bool
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to validate
 
 **Returns:** `bool` - True if validation successful
 
 **Requirements (TODO):**
+
 - Vault must exist and be in `Active` status
 - Caller must be the designated verifier (if set)
 - Current timestamp must be before `end_timestamp`
@@ -184,11 +188,13 @@ pub fn release_funds(env: Env, vault_id: u32) -> bool
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to release funds from
 
 **Returns:** `bool` - True if release successful
 
 **Requirements (TODO):**
+
 - Vault status must be `Active`
 - Caller must be authorized (verifier or contract logic)
 - Transfers USDC to `success_destination`
@@ -205,11 +211,13 @@ pub fn redirect_funds(env: Env, vault_id: u32) -> bool
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to redirect funds from
 
 **Returns:** `bool` - True if redirect successful
 
 **Requirements (TODO):**
+
 - Vault status must be `Active`
 - Current timestamp must be past `end_timestamp`
 - Transfers USDC to `failure_destination`
@@ -226,11 +234,13 @@ pub fn cancel_vault(env: Env, vault_id: u32) -> bool
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to cancel
 
 **Returns:** `bool` - True if cancellation successful
 
 **Requirements (TODO):**
+
 - Caller must be the vault creator
 - Vault status must be `Active`
 - Returns USDC to creator
@@ -247,6 +257,7 @@ pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault>
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to query
 
 **Returns:** `Option<ProductivityVault>` - Stored vault data when a record exists for that ID.
@@ -518,6 +529,7 @@ cargo test
 ```
 
 Expected output:
+
 ```
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
@@ -571,6 +583,7 @@ git checkout -b feature/your-feature-name
 ### Development Process
 
 1. **Keep your fork in sync**: Regularly pull from upstream to stay current
+
    ```bash
    git fetch upstream
    git checkout main
@@ -580,6 +593,7 @@ git checkout -b feature/your-feature-name
 2. **Make your changes**: Implement your feature or fix
 
 3. **Write tests**: Aim for 95%+ test coverage
+
    ```bash
    # Add tests to src/lib.rs
    cargo test
@@ -611,6 +625,7 @@ Fixes #issue-number
 ```
 
 Types:
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation
@@ -619,6 +634,7 @@ Types:
 - `chore`: Maintenance tasks
 
 Example:
+
 ```
 feat: add milestone validation logic
 
@@ -658,13 +674,17 @@ git push origin feature/your-feature-name
 Before submitting a PR:
 
 1. **Run all tests**:
+
    ```bash
    cargo test
    ```
 
 2. **Build for release**:
+   To ensure a reproducible WASM build (consistent binary hash for auditing), use the provided script:
+
    ```bash
-   cargo build --target wasm32-unknown-unknown --release
+   chmod +x scripts/build.sh
+   ./scripts/build.sh
    ```
 
 3. **Verify no warnings**:
@@ -685,7 +705,7 @@ When contributing code:
 
 1. **Never commit secrets**: Don't include API keys, passwords, or private keys
 2. **Validate inputs**: Always validate user inputs
-3. **Follow best practices**: 
+3. **Follow best practices**:
    - Use `require_auth()` for authorization
    - Check for overflow/underflow
    - Avoid reentrancy vulnerabilities
@@ -732,10 +752,12 @@ git push -u origin main
 ### Test Coverage
 
 The project includes unit tests for core logic, specifically:
+
 - Verification of milestone rejection after `end_timestamp`.
 - Verification of successful milestone validation before `end_timestamp`.
 
 To run tests:
+
 ```bash
 cargo test
 ```
