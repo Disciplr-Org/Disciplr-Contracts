@@ -1,4 +1,6 @@
 #![no_std]
+#![deny(warnings)]
+#![cfg_attr(test, allow(warnings))]
 #![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
