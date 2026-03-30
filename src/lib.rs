@@ -35,6 +35,11 @@ pub enum Error {
     InvalidTimestamps = 8,
     /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
     DurationTooLong = 9,
+    /// success_destination and failure_destination must be different addresses.
+    SameDestination = 10,
+    /// An address parameter is an obviously invalid placeholder: creator must differ from
+    /// success_destination and failure_destination, and verifier (when Some) must differ from creator.
+    InvalidAddress = 11,
 }
 
 // ---------------------------------------------------------------------------
@@ -108,8 +113,17 @@ impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
     ///
     /// # Validation Rules
-    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
+    /// - `amount` must be within `[MIN_AMOUNT, MAX_AMOUNT]`; otherwise returns `Error::InvalidAmount`.
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - `end_timestamp - start_timestamp` must not exceed `MAX_VAULT_DURATION`; otherwise returns `Error::DurationTooLong`.
+    /// - `success_destination` must differ from `failure_destination`; otherwise returns `Error::SameDestination`.
+    ///   Allowing equal destinations would make the success/failure outcome indistinguishable to the
+    ///   creator, removing the accountability incentive that is the core purpose of the vault.
+    /// - `creator` must differ from `success_destination` and `failure_destination`; otherwise returns
+    ///   `Error::InvalidAddress`. A creator that is also a destination could trivially recover funds
+    ///   regardless of milestone outcome, defeating the vault's accountability mechanism.
+    /// - `verifier` (when `Some`) must differ from `creator`; otherwise returns `Error::InvalidAddress`.
+    ///   A verifier equal to the creator provides no independent validation.
     ///
     /// # Prerequisites
     /// Creator must have sufficient USDC balance and authorize the transaction.
@@ -148,6 +162,26 @@ impl DisciplrVault {
         let duration = end_timestamp - start_timestamp;
         if duration > MAX_VAULT_DURATION {
             return Err(Error::DurationTooLong);
+        }
+
+        // Validate destinations are distinct (Issue #124)
+        if success_destination == failure_destination {
+            return Err(Error::SameDestination);
+        }
+
+        // Validate address roles are distinct (Issue #125)
+        // Creator must not be a destination: would allow trivial fund recovery regardless of outcome.
+        if creator == success_destination {
+            return Err(Error::InvalidAddress);
+        }
+        if creator == failure_destination {
+            return Err(Error::InvalidAddress);
+        }
+        // Verifier must not be the creator: would provide no independent validation.
+        if let Some(ref v) = verifier {
+            if *v == creator {
+                return Err(Error::InvalidAddress);
+            }
         }
 
         // Pull USDC from creator into this contract.

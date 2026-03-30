@@ -270,6 +270,202 @@ fn test_get_vault_state_never_created_id_returns_none() {
     assert!(client.get_vault_state(&42u32).is_none());
 }
 
+// ---------------------------------------------------------------------------
+// Issue #124: success_destination vs failure_destination equality
+// ---------------------------------------------------------------------------
+
+/// Verifica que create_vault rechaza cuando success_destination == failure_destination.
+/// Implicación UX: si ambas direcciones fueran iguales, el resultado de éxito y fracaso
+/// sería indistinguible para el creador, eliminando el incentivo de cumplir el milestone.
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_same_destination_rejected() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    // Misma dirección para success y failure
+    let same_dest = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &same_dest,
+        &same_dest,
+    );
+}
+
+/// Verifica que create_vault acepta cuando success_destination != failure_destination.
+/// Caso explícito del constraint introducido en el issue #124.
+#[test]
+fn test_different_destinations_accepted() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let success = Address::generate(&env);
+    let failure = Address::generate(&env);
+
+    // Las dos direcciones son distintas: debe crearse sin error
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &success,
+        &failure,
+    );
+
+    assert_eq!(vault_id, 0u32);
+
+    let vault = client.get_vault_state(&vault_id).unwrap();
+    assert_ne!(vault.success_destination, vault.failure_destination);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #125: Zero-address / dummy address validation
+// ---------------------------------------------------------------------------
+
+/// Verifica que create_vault rechaza cuando creator == success_destination.
+/// Un creador que es también el destino de éxito puede recuperar fondos
+/// trivialmente sin importar si completó el milestone.
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_creator_as_success_destination_rejected() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let failure = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &creator, // success_destination == creator
+        &failure,
+    );
+}
+
+/// Verifica que create_vault rechaza cuando creator == failure_destination.
+/// Un creador que es también el destino de fracaso recupera fondos
+/// sin consecuencia por no completar el milestone.
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_creator_as_failure_destination_rejected() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let success = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &success,
+        &creator, // failure_destination == creator
+    );
+}
+
+/// Verifica que create_vault rechaza cuando verifier == creator.
+/// Un verificador igual al creador no provee validación independiente,
+/// permitiendo al creador auto-validar y liberar fondos sin control externo.
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_verifier_same_as_creator_rejected() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let success = Address::generate(&env);
+    let failure = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &Some(creator.clone()), // verifier == creator
+        &success,
+        &failure,
+    );
+}
+
+/// Verifica que create_vault acepta cuando creator, verifier, success y failure
+/// son todos direcciones distintas generadas independientemente.
+#[test]
+fn test_all_distinct_addresses_accepted() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let verifier = Address::generate(&env);
+    let success = Address::generate(&env);
+    let failure = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &Some(verifier.clone()),
+        &success,
+        &failure,
+    );
+
+    assert_eq!(vault_id, 0u32);
+
+    let vault = client.get_vault_state(&vault_id).unwrap();
+    assert_ne!(vault.creator, vault.success_destination);
+    assert_ne!(vault.creator, vault.failure_destination);
+    assert_ne!(vault.success_destination, vault.failure_destination);
+    assert_eq!(vault.verifier, Some(verifier));
+}
+
 #[test]
 fn test_get_vault_state_cancelled_vault_remains_readable() {
     let (env, client, usdc, usdc_asset) = setup();
