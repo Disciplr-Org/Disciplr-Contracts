@@ -43,15 +43,16 @@ The main data structure representing a vault:
 ```rust
 #[contracttype]
 pub struct ProductivityVault {
-    pub creator: Address,           // Address that created the vault
-    pub amount: i128,                // Amount of USDC locked (in stroops)
-    pub start_timestamp: u64,       // Unix timestamp when vault becomes active
-    pub end_timestamp: u64,          // Unix deadline for milestone validation
-    pub milestone_hash: BytesN<32>, // SHA-256 hash of milestone requirements
-    pub verifier: Option<Address>,  // Optional trusted verifier address
-    pub success_destination: Address, // Address for fund release on success
-    pub failure_destination: Address, // Address for fund redirect on failure
-    pub status: VaultStatus,        // Current vault status
+    pub creator: Address,              // Address that created the vault
+    pub amount: i128,                  // Amount of USDC locked (in stroops)
+    pub start_timestamp: u64,          // Unix timestamp when vault becomes active
+    pub end_timestamp: u64,            // Unix deadline for milestone validation
+    pub milestone_hash: BytesN<32>,    // SHA-256 hash of milestone requirements
+    pub verifier: Option<Address>,     // Optional trusted verifier address
+    pub success_destination: Address,  // Address for fund release on success
+    pub failure_destination: Address,  // Address for fund redirect on failure
+    pub status: VaultStatus,           // Current vault status
+    pub milestone_validated: bool,     // True once validate_milestone succeeds
 }
 ```
 
@@ -66,6 +67,7 @@ pub struct ProductivityVault {
 | `success_destination` | `Address` | Recipient address on successful milestone completion |
 | `failure_destination` | `Address` | Recipient address when milestone is not completed |
 | `status` | `VaultStatus` | Current lifecycle state of the vault |
+| `milestone_validated` | `bool` | Set to `true` once `validate_milestone` is called successfully |
 
 ---
 
@@ -78,6 +80,7 @@ Creates a new productivity vault and locks USDC funds.
 ```rust
 pub fn create_vault(
     env: Env,
+    usdc_token: Address,
     creator: Address,
     amount: i128,
     start_timestamp: u64,
@@ -86,20 +89,21 @@ pub fn create_vault(
     verifier: Option<Address>,
     success_destination: Address,
     failure_destination: Address,
-) -> u32
+) -> Result<u32, Error>
 ```
 
 **Parameters:**
+- `usdc_token`: Address of the USDC token contract (used to pull funds from creator)
 - `creator`: Address of the vault creator (must authorize transaction)
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
 - `end_timestamp`: Deadline for milestone validation (unix seconds)
 - `milestone_hash`: SHA-256 hash of milestone document
-- `verifier`: Optional verifier address (None = anyone can validate)
+- `verifier`: Optional verifier address (`None` = only the creator may validate)
 - `success_destination`: Address to receive funds on success
 - `failure_destination`: Address to receive funds on failure
 
-**Returns:** `u32` - Unique vault identifier
+**Returns:** `Result<u32, Error>` - `Ok(vault_id)` on success; unique vault identifier
 
 **Requirements:**
 - Caller must authorize the transaction (`creator.require_auth()`)
@@ -115,18 +119,20 @@ pub fn create_vault(
 Allows the verifier (or authorized party) to validate milestone completion and release funds.
 
 ```rust
-pub fn validate_milestone(env: Env, vault_id: u32) -> bool
+pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to validate
 
-**Returns:** `bool` - True if validation successful
+**Returns:** `Result<bool, Error>` - `Ok(true)` if validation successful
 
-**Requirements (TODO):**
-- Vault must exist and be in `Active` status
-- Caller must be the designated verifier (if set)
-- Current timestamp must be before `end_timestamp`
+**Requirements:**
+- Vault must exist; otherwise returns `Error::VaultNotFound`
+- Vault must be in `Active` status; otherwise returns `Error::VaultNotActive`
+- If `verifier` is `Some(addr)`, only that address may call this; if `None`, only the creator may call it
+- Current timestamp must be strictly before `end_timestamp`; otherwise returns `Error::MilestoneExpired`
+- Sets `milestone_validated = true`; vault status remains `Active` until `release_funds` is called
 
 **Emits:** [`milestone_validated`](#milestone_validated) event
 
@@ -137,19 +143,21 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> bool
 Releases locked funds to the success destination (typically after validation).
 
 ```rust
-pub fn release_funds(env: Env, vault_id: u32) -> bool
+pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to release funds from
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if release successful
+**Returns:** `Result<bool, Error>` - `Ok(true)` if release successful
 
-**Requirements (TODO):**
-- Vault status must be `Active`
-- Caller must be authorized (verifier or contract logic)
-- Transfers USDC to `success_destination`
-- Sets status to `Completed`
+**Requirements:**
+- Vault must exist; otherwise returns `Error::VaultNotFound`
+- Vault status must be `Active`; otherwise returns `Error::VaultNotActive`
+- Either `milestone_validated == true` **or** `current timestamp >= end_timestamp`; otherwise returns `Error::NotAuthorized`
+- No caller authorization required — release is state-driven
+- Transfers USDC to `success_destination`; sets status to `Completed`
 
 ---
 
@@ -158,19 +166,21 @@ pub fn release_funds(env: Env, vault_id: u32) -> bool
 Redirects funds to the failure destination when milestone is not completed by deadline.
 
 ```rust
-pub fn redirect_funds(env: Env, vault_id: u32) -> bool
+pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to redirect funds from
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if redirect successful
+**Returns:** `Result<bool, Error>` - `Ok(true)` if redirect successful
 
-**Requirements (TODO):**
-- Vault status must be `Active`
-- Current timestamp must be past `end_timestamp`
-- Transfers USDC to `failure_destination`
-- Sets status to `Failed`
+**Requirements:**
+- Vault must exist; otherwise returns `Error::VaultNotFound`
+- Vault status must be `Active`; otherwise returns `Error::VaultNotActive`
+- Current timestamp must be `>= end_timestamp`; otherwise returns `Error::InvalidTimestamp`
+- `milestone_validated` must be `false`; if already validated returns `Error::NotAuthorized` (use `release_funds` instead)
+- Transfers USDC to `failure_destination`; sets status to `Failed`
 
 ---
 
@@ -217,7 +227,7 @@ pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault>
 
 **Returns:** `Option<ProductivityVault>` - Vault data if exists, None otherwise
 
-**Note:** Current implementation returns `None` as placeholder. Full implementation will read from persistent storage.
+**Note:** Returns `None` if no vault with that ID exists; otherwise returns the full `ProductivityVault` record from persistent storage.
 
 ---
 
@@ -363,6 +373,7 @@ let failure_destination: Address = Address::from_string("GD7..."); // Funder wal
 // Create vault
 let vault_id = DisciplrVaultClient::new(&env, &contract_address)
     .create_vault(
+        &usdc_token,
         &creator,
         &amount,
         &start_timestamp,
@@ -386,6 +397,13 @@ let result = DisciplrVaultClient::new(&env, &contract_address)
     .with_source_account(&verifier)
     .validate_milestone(&vault_id);
 // result = true
+
+// milestone_validated is now true; vault status is still Active
+// Call release_funds to transfer funds to success_destination
+
+let released = DisciplrVaultClient::new(&env, &contract_address)
+    .release_funds(&vault_id, &usdc_token);
+// released = true
 
 // Funds now transferred to success_destination
 // Vault status changed to Completed
@@ -415,11 +433,12 @@ let creator: Address = Address::from_string("GA7..."); // Original creator
 
 let result = DisciplrVaultClient::new(&env, &contract_address)
     .with_source_account(&creator)
-    .cancel_vault(&vault_id);
+    .cancel_vault(&vault_id, &usdc_token);
 // result = true
 
 // Funds returned to creator
 // Vault status changed to Cancelled
+// Note: cancellation is only possible if milestone_validated == false
 ```
 
 ### Example 5: Query Vault State
