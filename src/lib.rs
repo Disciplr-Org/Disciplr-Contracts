@@ -261,8 +261,8 @@ impl DisciplrVault {
         }
 
         // SECURITY NOTE: Transfer vs State Update.
-        // Funds are transferred to success_destination. 
-        // Note: Transfer happens before status update (CEI violation), but 
+        // Funds are transferred to success_destination.
+        // Note: Transfer happens before status update (CEI violation), but
         // Soroban's atomicity prevents partial success in most cases.
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
@@ -614,7 +614,6 @@ mod tests {
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.milestone_hash, custom_hash);
     }
-
 
     #[test]
     fn test_create_vault_invalid_timestamps_returns_error() {
