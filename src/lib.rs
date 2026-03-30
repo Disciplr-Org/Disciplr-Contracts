@@ -106,6 +106,11 @@ pub struct DisciplrVault;
 #[contractimpl]
 impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
+    /// Returns a unique, strictly monotonic `u32` vault ID starting from 0.
+    ///
+    /// # Vault ID Generation
+    /// Assigns the current `VaultCount` as the ID, then increments it for the next vault.
+    /// This ensures 0-indexed, sequential, and atomic assignment of IDs.
     ///
     /// # Validation Rules
     /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
