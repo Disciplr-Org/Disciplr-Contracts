@@ -276,8 +276,8 @@ impl DisciplrVault {
         }
 
         // SECURITY NOTE: Transfer vs State Update.
-        // Funds are transferred to success_destination. 
-        // Note: Transfer happens before status update (CEI violation), but 
+        // Funds are transferred to success_destination.
+        // Note: Transfer happens before status update (CEI violation), but
         // Soroban's atomicity prevents partial success in most cases.
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
@@ -629,7 +629,6 @@ mod tests {
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.milestone_hash, custom_hash);
     }
-
 
     #[test]
     fn test_create_vault_invalid_timestamps_returns_error() {
@@ -1430,11 +1429,11 @@ mod tests {
             &setup.failure_dest,
         );
 
-        assert!(result.is_err(), "verifier == success_destination must be rejected");
-        assert_eq!(
-            result.unwrap_err().unwrap(),
-            Error::VerifierIsDestination,
+        assert!(
+            result.is_err(),
+            "verifier == success_destination must be rejected"
         );
+        assert_eq!(result.unwrap_err().unwrap(), Error::VerifierIsDestination,);
     }
 
     /// Reject: verifier == failure_destination. The verifier could withhold
@@ -1457,11 +1456,11 @@ mod tests {
             &setup.failure_dest,
         );
 
-        assert!(result.is_err(), "verifier == failure_destination must be rejected");
-        assert_eq!(
-            result.unwrap_err().unwrap(),
-            Error::VerifierIsDestination,
+        assert!(
+            result.is_err(),
+            "verifier == failure_destination must be rejected"
         );
+        assert_eq!(result.unwrap_err().unwrap(), Error::VerifierIsDestination,);
     }
 
     /// No verifier (None) is always valid regardless of destination addresses —
@@ -1485,7 +1484,10 @@ mod tests {
             &setup.failure_dest,
         );
 
-        assert!(result.is_ok(), "verifier=None must not trigger VerifierIsDestination");
+        assert!(
+            result.is_ok(),
+            "verifier=None must not trigger VerifierIsDestination"
+        );
     }
 
     /// Edge case: verifier is Some but equals only the failure_destination while
@@ -1512,10 +1514,7 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().unwrap(),
-            Error::VerifierIsDestination,
-        );
+        assert_eq!(result.unwrap_err().unwrap(), Error::VerifierIsDestination,);
     }
 }
 
