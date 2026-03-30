@@ -298,3 +298,37 @@ fn test_get_vault_state_cancelled_vault_remains_readable() {
     assert_eq!(vault.status, VaultStatus::Cancelled);
     assert!(client.get_vault_state(&1u32).is_none());
 }
+
+#[test]
+fn test_sequential_vault_ids() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = env.ledger().timestamp();
+    let milestone = BytesN::from_array(&env, &[0u8; 32]);
+    let success = Address::generate(&env);
+    let failure = Address::generate(&env);
+
+    // Mint enough USDC for 5 vaults.
+    usdc_asset.mint(&creator, &(MIN_AMOUNT * 5));
+
+    for i in 0..5 {
+        let id = client.create_vault(
+            &usdc,
+            &creator,
+            &MIN_AMOUNT,
+            &now,
+            &(now + 86400),
+            &milestone,
+            &None,
+            &success,
+            &failure,
+        );
+        assert_eq!(id, i as u32);
+        
+        let vault = client.get_vault_state(&id).unwrap();
+        assert_eq!(vault.amount, MIN_AMOUNT);
+    }
+
+    assert_eq!(client.vault_count(), 5);
+}
