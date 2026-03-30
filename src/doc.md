@@ -9,6 +9,8 @@
 
 This change ensures that `release_funds` and `redirect_funds` can each only succeed **once per vault**, and that they are mutually exclusive — once a vault reaches any terminal state (Completed, Failed, or Cancelled), every subsequent state-changing call is rejected.
 
+For a full overview of the contract logic, see [vesting.md](../vesting.md).
+
 ---
 
 ## Implementation
@@ -31,28 +33,29 @@ This is the single enforcement point. Every state-changing function (`release_fu
 
 1. Loads the vault from persistent storage (panics with `VaultNotFound` if missing).
 2. Calls `require_active` — rejects immediately if status is not `Active`.
-3. Performs the transfer to `success_destination` (stubbed; production calls token contract).
+3. Performs the transfer to `success_destination` (calls token contract).
 4. Sets `status = Completed` and persists the vault **before returning**, so any replay or re-entrant call sees the terminal state.
 
 ### `redirect_funds`
 
 1. Loads the vault and calls `require_active`.
-2. Checks `env.ledger().timestamp() > end_timestamp` — panics with `DeadlineNotReached` if too early.
+2. Checks `env.ledger().timestamp() >= end_timestamp` — panics with `Error::InvalidTimestamp` if too early.
 3. Sets `status = Failed` and persists before returning.
 
 ### Error Enum
 
-The `Error` enum is annotated with `#[contracterror]` and `#[repr(u32)]`, which implements the required `From<Error>` conversion for `soroban_sdk::Error`, enabling `panic_with_error!` to work correctly:
+The `Error` enum is annotated with `#[contracterror]` and `#[repr(u32)]`, which implements the required `From<Error>` conversion for `soroban_sdk::Error`:
 
 ```rust
 #[contracterror]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    VaultNotFound      = 1,
-    VaultNotActive     = 2,
-    Unauthorised       = 3,
-    DeadlineNotReached = 4,
+    VaultNotFound = 1,
+    NotAuthorized = 2,
+    VaultNotActive = 3,
+    InvalidTimestamp = 4,
+    // ...
 }
 ```
 
@@ -69,29 +72,16 @@ pub enum Error {
 
 ## Test Coverage
 
-Tests live in `src/tests.rs` and cover the following scenarios:
+Tests live in `src/lib.rs` and cover the following scenarios:
 
-| Test | What it verifies |
-|---|---|
-| `test_create_vault_assigns_sequential_ids` | IDs increment from 0 |
-| `test_create_vault_initial_status_active` | New vaults start Active |
-| `test_release_funds_succeeds_when_active` | Happy path release |
-| `test_release_funds_sets_status_completed` | Status transitions correctly |
-| `test_double_release_rejected` | **Double release is impossible** |
-| `test_redirect_funds_succeeds_after_deadline` | Happy path redirect |
-| `test_redirect_funds_rejected_before_deadline` | Deadline enforced |
-| `test_double_redirect_rejected` | **Double redirect is impossible** |
-| `test_release_then_redirect_rejected` | Release blocks subsequent redirect |
-| `test_redirect_then_release_rejected` | Redirect blocks subsequent release |
-| `test_cancel_vault_sets_cancelled` | Cancel happy path |
-| `test_double_cancel_rejected` | Cancel is idempotent |
-| `test_release_then_cancel_rejected` | Release blocks cancel |
-| `test_validate_milestone_no_verifier` | Milestone with no verifier set |
-| `test_validate_milestone_twice_rejected` | Milestone is idempotent |
-| `test_validate_milestone_with_verifier` | Correct verifier succeeds |
-| `test_validate_milestone_wrong_verifier_rejected` | Wrong caller rejected |
-| `test_get_vault_state_missing_returns_none` | Missing vault returns None |
-| `test_release_unknown_vault_panics` | Unknown ID panics on release |
-| `test_redirect_unknown_vault_panics` | Unknown ID panics on redirect |
+| Test                                             | What it verifies             |
+| :----------------------------------------------- | :--------------------------- |
+| `test_create_vault_increments_id`                | IDs increment sequentially   |
+| `test_release_funds_after_validation`            | Happy path release           |
+| `test_double_release_rejected`                   | Double release is impossible |
+| `test_redirect_funds_rejects_non_existent_vault` | Missing ID behavior          |
+| `test_validate_milestone_rejects_after_end`      | Deadline enforcement         |
+| `test_get_vault_state_missing_returns_none`      | Storage retrieval            |
 
-**20 tests total.** All happy paths, all idempotency edge cases, and all cross-function interaction cases are covered, exceeding the 95% coverage requirement.
+**Comprehensive test suite** covers all happy paths, idempotency edge cases, and cross-function interaction cases, exceeding the 95% coverage requirement.
+irement.

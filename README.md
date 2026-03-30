@@ -9,16 +9,16 @@ Single contract **disciplr-vault** with:
 - **Data model:** `ProductivityVault` (creator, amount, start/end timestamps, milestone hash, optional verifier, success/failure destinations, status).
 - **Status:** `Active`, `Completed`, `Failed`, `Cancelled`.
 - **Methods:**
-  - ✅ `create_vault(...)` — create vault and transfer USDC from creator to contract (IMPLEMENTED)
-  - `validate_milestone(vault_id)` — verifier validates milestone (release logic TODO).
-  - `release_funds(vault_id)` — release to success destination (TODO).
-  - `redirect_funds(vault_id)` — redirect to failure destination (TODO).
-  - `cancel_vault(vault_id)` — cancel and return funds to creator; sets status to `Cancelled`.
+  - `create_vault(...)` — create vault and transfer USDC from creator to contract.
+  - `validate_milestone(vault_id)` — authorized party validates milestone completion.
+  - `release_funds(vault_id, usdc_token)` — release funds to success destination.
+  - `redirect_funds(vault_id, usdc_token)` — redirect funds to failure destination after deadline.
+  - `cancel_vault(vault_id, usdc_token)` — cancel vault and return funds to creator.
   - `get_vault_state(vault_id)` — return vault state from storage.
 
 ## Recent Updates
 
-### ✅ USDC Token Integration (Feature #3)
+###  USDC Token Integration (Feature #3)
 
 The `create_vault` function now includes full USDC token transfer functionality:
 
@@ -41,7 +41,7 @@ The Disciplr Vault follows a transparent security model based on creator authori
 
 ---
 
-# Contract Documentation
+### Contract Documentation
 
 ## Overview
 
@@ -72,12 +72,12 @@ pub enum VaultStatus {
 }
 ```
 
-| Status | Description |
-|--------|-------------|
-| `Active` | Vault is live, waiting for milestone validation or deadline |
-| `Completed` | Milestone verified, funds released to success destination |
-| `Failed` | Deadline passed without validation, funds redirected |
-| `Cancelled` | Creator cancelled vault, funds returned |
+| Status      | Description                                                 |
+| ----------- | ----------------------------------------------------------- |
+| `Active`    | Vault is live, waiting for milestone validation or deadline |
+| `Completed` | Milestone verified, funds released to success destination   |
+| `Failed`    | Deadline passed without validation, funds redirected        |
+| `Cancelled` | Creator cancelled vault, funds returned                     |
 
 ### ProductivityVault Struct
 
@@ -98,17 +98,17 @@ pub struct ProductivityVault {
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `creator` | `Address` | Wallet address that created the vault |
-| `amount` | `i128` | Total USDC amount locked (in stroops, 1 USDC = 10^7 stroops) |
-| `start_timestamp` | `u64` | Unix timestamp (seconds) when vault becomes active |
-| `end_timestamp` | `u64` | Unix timestamp (seconds) deadline for milestone validation |
-| `milestone_hash` | `BytesN<32>` | SHA-256 hash documenting milestone requirements |
-| `verifier` | `Option<Address>` | Optional trusted party who can validate milestones |
-| `success_destination` | `Address` | Recipient address on successful milestone completion |
-| `failure_destination` | `Address` | Recipient address when milestone is not completed |
-| `status` | `VaultStatus` | Current lifecycle state of the vault |
+| Field                 | Type              | Description                                        |
+| :-------------------- | :---------------- | :------------------------------------------------- |
+| `creator`             | `Address`         | Wallet address that created the vault              |
+| `amount`              | `i128`            | Total USDC amount locked (in stroops)              |
+| `start_timestamp`     | `u64`             | Unix timestamp when vault becomes active           |
+| `end_timestamp`       | `u64`             | Unix timestamp deadline for milestone validation   |
+| `milestone_hash`      | `BytesN<32>`      | SHA-256 hash documenting milestone requirements    |
+| `verifier`            | `Option<Address>` | Optional trusted party who can validate milestones |
+| `success_destination` | `Address`         | Recipient address on successful completion         |
+| `failure_destination` | `Address`         | Recipient address when milestone is not completed  |
+| `status`              | `VaultStatus`     | Current lifecycle state of the vault               |
 
 ---
 
@@ -121,6 +121,7 @@ Creates a new productivity vault and locks USDC funds.
 ```rust
 pub fn create_vault(
     env: Env,
+    usdc_token: Address,
     creator: Address,
     amount: i128,
     start_timestamp: u64,
@@ -129,22 +130,25 @@ pub fn create_vault(
     verifier: Option<Address>,
     success_destination: Address,
     failure_destination: Address,
-) -> u32
+) -> Result<u32, Error>
 ```
 
 **Parameters:**
-- `creator`: Address of the vault creator (must authorize transaction)
-- `amount`: USDC amount to lock (in stroops)
-- `start_timestamp`: When vault becomes active (unix seconds)
-- `end_timestamp`: Deadline for milestone validation (unix seconds)
+
+- `usdc_token`: Address of the USDC token contract
+- `creator`: Address of the vault creator
+- `amount`: USDC amount to lock
+- `start_timestamp`: When vault becomes active
+- `end_timestamp`: Deadline for milestone validation
 - `milestone_hash`: SHA-256 hash of milestone document
-- `verifier`: Optional verifier address (None = anyone can validate)
+- `verifier`: Optional verifier address
 - `success_destination`: Address to receive funds on success
 - `failure_destination`: Address to receive funds on failure
 
-**Returns:** `u32` - Unique vault identifier
+**Returns:** `Result<u32, Error>` - Unique vault identifier
 
 **Requirements:**
+
 - Caller must authorize the transaction (`creator.require_auth()`)
 - `end_timestamp` must be greater than `start_timestamp`
 - USDC transfer must be approved by creator before calling
@@ -158,17 +162,19 @@ pub fn create_vault(
 Allows the verifier (or authorized party) to validate milestone completion and release funds.
 
 ```rust
-pub fn validate_milestone(env: Env, vault_id: u32) -> bool
+pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error>
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to validate
 
-**Returns:** `bool` - True if validation successful
+**Returns:** `Result<bool, Error>` - True if validation successful
 
-**Requirements (TODO):**
+**Requirements:**
+
 - Vault must exist and be in `Active` status
-- Caller must be the designated verifier (if set)
+- Caller must be the designated verifier (or creator if none set)
 - Current timestamp must be before `end_timestamp`
 
 **Emits:** `milestone_validated` event
@@ -180,19 +186,21 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> bool
 Releases locked funds to the success destination (typically after validation).
 
 ```rust
-pub fn release_funds(env: Env, vault_id: u32) -> bool
+pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to release funds from
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if release successful
+**Returns:** `Result<bool, Error>` - True if release successful
 
-**Requirements (TODO):**
+**Requirements:**
+
 - Vault status must be `Active`
-- Caller must be authorized (verifier or contract logic)
+- Authorized if milestone validated OR deadline reached
 - Transfers USDC to `success_destination`
-- Sets status to `Completed`
 
 ---
 
@@ -201,19 +209,21 @@ pub fn release_funds(env: Env, vault_id: u32) -> bool
 Redirects funds to the failure destination when milestone is not completed by deadline.
 
 ```rust
-pub fn redirect_funds(env: Env, vault_id: u32) -> bool
+pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to redirect funds from
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if redirect successful
+**Returns:** `Result<bool, Error>` - True if redirect successful
 
-**Requirements (TODO):**
+**Requirements:**
+
 - Vault status must be `Active`
 - Current timestamp must be past `end_timestamp`
 - Transfers USDC to `failure_destination`
-- Sets status to `Failed`
 
 ---
 
@@ -222,19 +232,21 @@ pub fn redirect_funds(env: Env, vault_id: u32) -> bool
 Allows the creator to cancel the vault and retrieve locked funds.
 
 ```rust
-pub fn cancel_vault(env: Env, vault_id: u32) -> bool
+pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to cancel
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if cancellation successful
+**Returns:** `Result<bool, Error>` - True if cancellation successful
 
-**Requirements (TODO):**
-- Caller must be the vault creator
+**Requirements:**
+
+- Caller must be the original vault creator
 - Vault status must be `Active`
 - Returns USDC to creator
-- Sets status to `Cancelled`
 
 ---
 
@@ -247,6 +259,7 @@ pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault>
 ```
 
 **Parameters:**
+
 - `vault_id`: ID of the vault to query
 
 **Returns:** `Option<ProductivityVault>` - Stored vault data when a record exists for that ID.
@@ -261,7 +274,11 @@ pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault>
 
 Emitted when a new vault is created.
 
-**Topic:** `("vault_created", vault_id)`
+**Topic:**
+
+```text
+("vault_created", vault_id)
+```
 
 **Data:** Full `ProductivityVault` struct
 
@@ -271,7 +288,11 @@ Emitted when a new vault is created.
 
 Emitted when a milestone is successfully validated.
 
-**Topic:** `("milestone_validated", vault_id)`
+**Topic:**
+
+```text
+("milestone_validated", vault_id)
+```
 
 **Data:** `()` (empty tuple)
 
@@ -279,11 +300,9 @@ Emitted when a milestone is successfully validated.
 
 ## Lifecycle
 
-```
+```text
                     +--------------+
                     |   CREATED    |
-                    |              |
-                    | create_vault |
                     +------+-------+
                            |
                            v
@@ -319,53 +338,9 @@ Emitted when a milestone is successfully validated.
 
 ---
 
-## Security Assumptions
+## Security and Trust Model
 
-### Authentication & Authorization
-
-1. **Creator Authorization**: The vault creator must authorize transactions via `require_auth()`. This ensures only the creator can initiate vault creation or cancellation.
-
-2. **Verifier Role**: An optional verifier can be designated during vault creation. If set, only the verifier can validate milestones. If not set, anyone can validate (which may be useful for decentralized verification).
-
-3. **Destination Addresses**: Once set, success and failure destinations cannot be modified. This prevents fund redirection attacks.
-
-### Timing Constraints
-
-1. **Start Timestamp**: Vault funds are locked from `start_timestamp`. Before this time, the vault exists but is not active.
-
-2. **End Timestamp**: After `end_timestamp`:
-   - If milestone is validated → funds release to success destination
-   - If not validated → funds redirect to failure destination
-
-3. **Timestamp Validation**: All time-sensitive operations must check that the current block timestamp is within the valid window.
-
-### Token Handling
-
-1. **USDC Integration**: The contract expects USDC (or similar token) to be transferred to the contract before vault creation. This requires:
-   - Creator approves token transfer
-   - Contract pulls tokens from creator (via `transfer_from`)
-
-2. **Non-Custodial**: The contract holds tokens in escrow but never has withdrawal authority beyond the defined destination addresses.
-
-### Current Limitations (TODOs)
-
-The following security features are not yet implemented:
-
-- [ ] **Storage Persistence**: Vaults are not persisted between contract calls
-- [ ] **Token Transfer**: Actual USDC transfer logic is not implemented
-- [ ] **Timestamp Validation**: Methods don't validate timestamps
-- [ ] **Verifier Authorization**: No check that caller is the designated verifier
-- [ ] **Reentrancy Protection**: No guards against reentrancy attacks
-- [ ] **Access Control**: Basic auth only; no complex role-based access
-
-### Recommendations for Production
-
-1. **Use Soroban Token Interface**: Implement standard token operations for USDC
-2. **Add Access Control**: Implement `Ownable` pattern for admin functions
-3. **Circuit Breaker**: Add emergency pause functionality
-4. **Upgradeability**: Consider proxy pattern for contract upgrades
-5. **Comprehensive Tests**: Achieve 95%+ test coverage
-6. **External Audits**: Have security experts review before mainnet deployment
+For a detailed analysis of the trust model, assumptions, and known limitations, please refer to the [Security and Trust Model](vesting.md#security-and-trust-model) in the full documentation.
 
 ---
 
@@ -503,7 +478,7 @@ cd disciplr-contracts
 cargo build
 ```
 
-WASM build (for deployment):
+**WASM build (for deployment):**
 
 ```bash
 cargo build --target wasm32-unknown-unknown --release
@@ -518,7 +493,8 @@ cargo test
 ```
 
 Expected output:
-```
+
+```text
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
@@ -526,7 +502,7 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ## Project Layout
 
-```
+```text
 disciplr-contracts/
 ├── src/
 │   └── lib.rs                # DisciplrVault contract + ProductivityVault type
@@ -537,40 +513,41 @@ disciplr-contracts/
 
 ---
 
-# Contributors Workflow
+## Contributors Workflow
 
 We welcome contributions from the community! Please follow this workflow to ensure a smooth collaboration.
 
-## Getting Started
+### Getting Started
 
-### 1. Fork the Repository
+#### 1. Fork the Repository
 
 Click the "Fork" button on the GitHub repository to create your own copy.
 
-### 2. Clone Your Fork
+#### 2. Clone Your Fork
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/disciplr-contracts.git
 cd disciplr-contracts
 ```
 
-### 3. Add Upstream Remote
+#### 3. Add Upstream Remote
 
 ```bash
 git remote add upstream https://github.com/your-org/disciplr-contracts.git
 ```
 
-### 4. Create a Feature Branch
+#### 4. Create a Feature Branch
 
 ```bash
 git checkout -b feature/your-feature-name
 ```
 
-## Making Changes
+### Making Changes
 
-### Development Process
+#### Development Process
 
 1. **Keep your fork in sync**: Regularly pull from upstream to stay current
+
    ```bash
    git fetch upstream
    git checkout main
@@ -580,12 +557,14 @@ git checkout -b feature/your-feature-name
 2. **Make your changes**: Implement your feature or fix
 
 3. **Write tests**: Aim for 95%+ test coverage
+
    ```bash
    # Add tests to src/lib.rs
    cargo test
    ```
 
 4. **Build and verify**:
+
    ```bash
    cargo build
    cargo build --target wasm32-unknown-unknown --release
@@ -602,7 +581,9 @@ git checkout -b feature/your-feature-name
 
 Use clear, descriptive commit messages:
 
-```
+**Commit Message Format:**
+
+```text
 type: short description
 
 Detailed description of changes.
@@ -611,6 +592,7 @@ Fixes #issue-number
 ```
 
 Types:
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation
@@ -618,14 +600,14 @@ Types:
 - `refactor`: Code restructuring
 - `chore`: Maintenance tasks
 
-Example:
-```
+**Commit Example:**
+
+```text
 feat: add milestone validation logic
 
 - Implement validate_milestone() with verifier authorization
 - Add timestamp checks to prevent late validations
 - Emit milestone_validated event on success
-
 Fixes #42
 ```
 
@@ -658,11 +640,13 @@ git push origin feature/your-feature-name
 Before submitting a PR:
 
 1. **Run all tests**:
+
    ```bash
    cargo test
    ```
 
 2. **Build for release**:
+
    ```bash
    cargo build --target wasm32-unknown-unknown --release
    ```
@@ -685,7 +669,7 @@ When contributing code:
 
 1. **Never commit secrets**: Don't include API keys, passwords, or private keys
 2. **Validate inputs**: Always validate user inputs
-3. **Follow best practices**: 
+3. **Follow best practices**:
    - Use `require_auth()` for authorization
    - Check for overflow/underflow
    - Avoid reentrancy vulnerabilities
@@ -702,7 +686,7 @@ Found a bug or have a feature request?
    - Steps to reproduce (for bugs)
    - Expected vs actual behavior
 
-## Code of Conduct
+### Code of Conduct
 
 - Be respectful and inclusive
 - Welcome newcomers
@@ -721,7 +705,7 @@ git remote add origin <your-disciplr-contracts-repo-url>
 git push -u origin main
 ```
 
-## Security and Testing
+## Deployment and Testing
 
 ### Security Notes
 
@@ -732,15 +716,17 @@ git push -u origin main
 ### Test Coverage
 
 The project includes unit tests for core logic, specifically:
+
 - Verification of milestone rejection after `end_timestamp`.
 - Verification of successful milestone validation before `end_timestamp`.
 
 To run tests:
+
 ```bash
 cargo test
 ```
 
-# Vault Constraints
+### Vault Constraints
 
 To reduce abuse, spam, and potential overflow risk, strict bounds are enforced during vault creation.
 
