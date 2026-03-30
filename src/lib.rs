@@ -223,6 +223,8 @@ impl DisciplrVault {
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
 
+        vault.creator.require_auth();
+
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive); // Or InvalidStatus as appropriate
         }
@@ -270,7 +272,7 @@ impl DisciplrVault {
             return Err(Error::VaultNotActive);
         }
 
-        if env.ledger().timestamp() < vault.end_timestamp {
+        if env.ledger().timestamp() <= vault.end_timestamp {
             return Err(Error::InvalidTimestamp); // Too early to redirect
         }
 
@@ -1170,4 +1172,26 @@ mod tests {
         let client = setup.client();
         client.cancel_vault(&999u32, &setup.usdc_token);
     }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, 3)")]
+    fn test_double_cancel_fails_142() {
+        let setup = TestSetup::new();
+        setup.env.mock_all_auths();
+        let vault_id = setup.create_default_vault();
+        setup.client().cancel_vault(&vault_id, &setup.usdc_client().address);
+        setup.client().cancel_vault(&vault_id, &setup.usdc_client().address);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, 4)")]
+    fn test_redirect_exact_deadline_fails_150() {
+        let setup = TestSetup::new();
+        setup.env.mock_all_auths();
+        let vault_id = setup.create_default_vault();
+        let vault = setup.client().get_vault_state(&vault_id).unwrap();
+        setup.env.ledger().set_timestamp(vault.end_timestamp);
+        setup.client().redirect_funds(&vault_id, &setup.usdc_client().address);
+    }
+
 }
