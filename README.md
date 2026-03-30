@@ -33,7 +33,8 @@ See [USDC_INTEGRATION.md](./USDC_INTEGRATION.md) for detailed documentation.
 
 ## Documentation
 
-For detailed contract documentation, see [vesting.md](vesting.md).
+- Detailed contract behavior: [vesting.md](vesting.md)
+- USDC issuer/admin trust assumptions: [USDC_INTEGRATION.md](USDC_INTEGRATION.md)
 
 ## Security
 
@@ -346,6 +347,8 @@ Emitted when a milestone is successfully validated.
    - Contract pulls tokens from creator (via `transfer_from`)
 
 2. **Non-Custodial**: The contract holds tokens in escrow but never has withdrawal authority beyond the defined destination addresses.
+
+3. **Issuer / Admin Trust**: Production USDC still carries issuer-level governance and compliance risk. Disciplr cannot prevent issuer or admin actions that freeze, pause, blacklist, migrate, or otherwise affect the external asset. See [USDC_INTEGRATION.md](USDC_INTEGRATION.md).
 
 ### Current Limitations (TODOs)
 
