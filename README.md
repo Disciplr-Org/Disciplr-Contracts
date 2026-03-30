@@ -51,9 +51,9 @@ For a detailed analysis of the trust model, assumptions, and known limitations (
 
 ---
 
-## Contract Documentation Detail
+## Detail: Contract Data and Logic
 
-## Overview
+### Overview
 
 The Disciplr Vault is a Soroban smart contract deployed on the Stellar blockchain that enables **programmable time-locked USDC vaults** for productivity-based milestone funding. It allows creators to lock USDC tokens with specific milestones and conditions, ensuring funds are only released upon verified completion or redirected to a failure destination if milestones are not met.
 
@@ -528,8 +528,7 @@ WASM build (for deployment):
 
 ```bash
 cargo build --target wasm32-unknown-unknown --release
-
-```bash
+```
 
 Output: `target/wasm32-unknown-unknown/release/disciplr_vault.wasm`
 
