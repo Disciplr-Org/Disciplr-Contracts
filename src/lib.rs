@@ -154,11 +154,10 @@ impl DisciplrVault {
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(&creator, &env.current_contract_address(), &amount);
 
-        let mut vault_count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::VaultCount)
-            .unwrap_or(0);
+        let mut vault_count: u32 = match env.storage().instance().get(&DataKey::VaultCount) {
+            Some(count) => count,
+            None => 0,
+        };
         let vault_id = vault_count;
         vault_count += 1;
         env.storage()
@@ -367,12 +366,21 @@ impl DisciplrVault {
         env.storage().instance().get(&DataKey::Vault(vault_id))
     }
 
-    /// Return the number of vault IDs assigned so far.
+    /// Returns total number of vaults created.
+    ///
+    /// This is a read-only view function used for:
+    /// - pagination in frontend
+    /// - off-chain indexing
+    ///
+    /// Returns 0 if no vaults exist.
+    ///
+    /// This value is consistent with VaultCount used
+    /// in vault ID generation.
     pub fn vault_count(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::VaultCount)
-            .unwrap_or(0)
+        match env.storage().instance().get(&DataKey::VaultCount) {
+            Some(count) => count,
+            None => 0,
+        }
     }
 }
 
