@@ -774,3 +774,26 @@ Boundary and over-limit cases are fully covered in the tests, including:
 - Duration exceeding maximum
 - Invalid timestamp ordering
 - Past start timestamps
+
+## Rust Version (MSRV)
+
+This project defines a Minimum Supported Rust Version (MSRV):
+
+- Rust 1.74.0
+
+The CI pipeline validates both MSRV and latest stable to ensure compatibility and reproducibility.
+
+## Running Locally
+
+Build:
+cargo build
+
+Run tests:
+cargo test
+
+Build WASM (for Soroban deployment):
+cargo build --target wasm32-unknown-unknown --release
+
+## Coverage
+
+cargo tarpaulin
