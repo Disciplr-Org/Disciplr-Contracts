@@ -227,7 +227,7 @@ pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault>
 
 **Returns:** `Option<ProductivityVault>` - Vault data if exists, None otherwise
 
-**Note:** Returns `None` if no vault with that ID exists; otherwise returns the full `ProductivityVault` record from persistent storage.
+**Note:** Returns `None` if no vault with that ID exists; otherwise returns the full `ProductivityVault` record from persistent storage. Created vault records are not deleted during normal contract execution — completed, failed, and cancelled vaults still return `Some(ProductivityVault)` with their terminal status. `None` therefore means the ID was never assigned (`vault_id >= vault_count`) or storage was cleared outside the contract's normal lifecycle.
 
 ---
 
@@ -417,7 +417,7 @@ After the deadline passes without milestone validation, funds are redirected.
 // Assume end_timestamp has passed and no validation occurred
 
 let result = DisciplrVaultClient::new(&env, &contract_address)
-    .redirect_funds(&vault_id);
+    .redirect_funds(&vault_id, &usdc_token);
 // result = true
 
 // Funds transferred to failure_destination
