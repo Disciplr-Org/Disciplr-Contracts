@@ -298,3 +298,55 @@ fn test_get_vault_state_cancelled_vault_remains_readable() {
     assert_eq!(vault.status, VaultStatus::Cancelled);
     assert!(client.get_vault_state(&1u32).is_none());
 }
+
+#[test]
+fn test_regression_verifier_none() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let milestone = BytesN::from_array(&env, &[0u8; 32]);
+    let end_time = now + 86_400;
+
+    // Create a vault with verifier = None
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &end_time,
+        &milestone,
+        &None, // NO VERIFIER
+        &success_dest,
+        &failure_dest,
+    );
+
+    // Advance time just before the deadline
+    env.ledger().set_timestamp(end_time - 1);
+
+    // Validation should succeed (creator auth is mocked)
+    let validated = client.validate_milestone(&vault_id);
+    assert!(validated);
+
+    let vault = client.get_vault_state(&vault_id).unwrap();
+    assert!(vault.milestone_validated);
+    assert_eq!(vault.verifier, None);
+
+    // Releasing funds should succeed since validation passed
+    let released = client.release_funds(&vault_id, &usdc);
+    assert!(released);
+
+    // Confirm tokens arrived at success_destination
+    let token = soroban_sdk::token::TokenClient::new(&env, &usdc);
+    assert_eq!(token.balance(&success_dest), MIN_AMOUNT);
+    
+    // Status must be completed
+    let vault_final = client.get_vault_state(&vault_id).unwrap();
+    assert_eq!(vault_final.status, VaultStatus::Completed);
+}
