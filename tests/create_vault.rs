@@ -62,6 +62,84 @@ fn test_create_vault_valid_boundary_values() {
 }
 
 #[test]
+fn test_create_vault_start_exactly_now() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    // start_timestamp == now should be valid
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    assert_eq!(vault_id, 0u32);
+}
+
+#[test]
+fn test_create_vault_start_now_plus_one() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    // start_timestamp == now + 1 should be valid
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &(now + 1),
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    assert_eq!(vault_id, 0u32);
+}
+
+#[test]
+#[should_panic] // This will panic with the token contract error
+fn test_create_vault_insufficient_balance() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    // Mint less than required amount
+    usdc_asset.mint(&creator, &(MIN_AMOUNT - 1));
+
+    // This should panic because token_client.transfer will fail
+    client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #7)")]
 fn test_amount_below_minimum() {
     let (env, client, usdc, _usdc_asset) = setup();

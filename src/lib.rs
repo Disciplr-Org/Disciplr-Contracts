@@ -108,11 +108,20 @@ impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
     ///
     /// # Validation Rules
-    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
+    /// - `amount` must be positive (between `MIN_AMOUNT` and `MAX_AMOUNT`); otherwise returns `Error::InvalidAmount`.
+    /// - `start_timestamp` must be in the future or current ledger time (`>= env.ledger().timestamp()`);
+    ///   otherwise returns `Error::InvalidTimestamp`.
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - Vault duration (`end_timestamp - start_timestamp`) must not exceed `MAX_VAULT_DURATION`.
     ///
-    /// # Prerequisites
-    /// Creator must have sufficient USDC balance and authorize the transaction.
+    /// # Prerequisites & Security
+    /// - Creator must have sufficient USDC balance and authorize the transaction (`require_auth`).
+    /// - The contract will revert with the underlying Soroban token error if the transfer fails.
+    /// - **Threat Model:** Be aware that setting the `failure_destination` to the creator's address
+    ///   can create collusion risks where the creator has no incentive to complete the milestone.
+    ///
+    /// # Emits
+    /// - `vault_created` event containing the `ProductivityVault` struct.
     pub fn create_vault(
         env: Env,
         usdc_token: Address,

@@ -40,10 +40,10 @@ jobs:
           echo "Current coverage: $COVERAGE%"
           # Note: 92%+ is acceptable given Soroban SDK event publishing limitations
           # Functional coverage of business logic is 100%
-          if (( $(echo "$COVERAGE >= 90.0" | bc -l) )); then
-            echo "✅ Coverage threshold met: $COVERAGE% >= 90%"
+          if (( $(echo "$COVERAGE >= 95.0" | bc -l) )); then
+            echo "✅ Coverage threshold met: $COVERAGE% >= 95%"
             exit 0
           else
-            echo "❌ Coverage below threshold: $COVERAGE% < 90%"
+            echo "❌ Coverage below threshold: $COVERAGE% < 95%"
             exit 1
           fi
