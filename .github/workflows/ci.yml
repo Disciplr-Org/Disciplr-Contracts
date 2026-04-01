@@ -10,24 +10,51 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  # ---------------------------------------------------------------------------
+  # Job 1: Formatting gate
+  # Runs first and fast. Blocks all other jobs if formatting is wrong.
+  # Reviewers and auditors can see a clear, isolated failure reason.
+  # ---------------------------------------------------------------------------
+  fmt:
+    name: Formatting (cargo fmt --check)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        toolchain: stable
-    
-    - name: Build
-      run: cargo build --verbose
-    
-    - name: Run tests
-      run: cargo test --verbose
-    
-    - name: Check formatting
-      run: cargo fmt -- --check
-    
-    - name: Run clippy
-      run: cargo clippy -- -D warnings
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + rustfmt)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - name: Check formatting
+        # Mirrors the local command: cargo fmt -- --check
+        # Fails with a non-zero exit code if any file is not formatted.
+        # Fix locally with: cargo fmt
+        run: cargo fmt -- --check
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Build, test, and lint
+  # Only runs after fmt passes — no wasted CI minutes on broken style.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Build, Test & Lint
+    runs-on: ubuntu-latest
+    needs: fmt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings

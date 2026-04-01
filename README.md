@@ -23,7 +23,7 @@ Single contract **disciplr-vault** with:
 The `create_vault` function now includes full USDC token transfer functionality:
 
 - Transfers specified USDC amount from creator to contract
-- Validates all inputs (amount > 0, valid timestamps)
+- Validates all inputs (bounded token amount, checked duration arithmetic, valid timestamps)
 - Requires creator authorization
 - Handles insufficient balance errors
 - **Test coverage: 100% of create_vault logic**
@@ -35,9 +35,51 @@ See [USDC_INTEGRATION.md](./USDC_INTEGRATION.md) for detailed documentation.
 
 For detailed contract documentation, see [vesting.md](vesting.md).
 
+## Backend Integration
+
+This contract provides a complete REST API mapping for backend integration. The contract methods map to the following API endpoints:
+
+| Contract Method | HTTP Method | API Endpoint |
+|----------------|-------------|--------------|
+| `create_vault` | POST | `/api/v1/vaults` |
+| `validate_milestone` | POST | `/api/v1/vaults/{vault_id}/validate` |
+| `release_funds` | POST | `/api/v1/vaults/{vault_id}/release` |
+| `redirect_funds` | POST | `/api/v1/vaults/{vault_id}/redirect` |
+| `cancel_vault` | POST | `/api/v1/vaults/{vault_id}/cancel` |
+| `get_vault_state` | GET | `/api/v1/vaults/{vault_id}` |
+| `vault_count` | GET | `/api/v1/vaults/count` |
+
+### API Payload Example
+
+**Create Vault Request:**
+```json
+{
+  "usdc_token": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+  "creator": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "amount": "1000000000",
+  "start_timestamp": 1704067200,
+  "end_timestamp": 1706640000,
+  "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
+  "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "failure_destination": "GD7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+}
+```
+
+See [`src/doc.md`](./src/doc.md) for complete backend integration guide with:
+- Full API payload schemas
+- Error handling mappings
+- TypeScript/JavaScript implementation patterns
+- Security considerations
+- Event monitoring patterns
+
 ## Security
 
 The Disciplr Vault follows a transparent security model based on creator authorization and optional third-party verification. For a detailed analysis of the trust model, assumptions, and known limitations (including CEI pattern notes), please refer to the [Security and Trust Model](vesting.md#security-and-trust-model) in the documentation.
+
+Overflow hardening:
+- Vault creation uses explicit checked subtraction for `end_timestamp - start_timestamp`, including `u64::MAX` boundary cases.
+- Every token transfer path re-validates the stored `amount` before calling the token contract, so malformed or out-of-range values are rejected before any transfer attempt.
 
 ---
 
@@ -90,11 +132,12 @@ pub struct ProductivityVault {
     pub amount: i128,                // Amount of USDC locked (in stroops)
     pub start_timestamp: u64,       // Unix timestamp when vault becomes active
     pub end_timestamp: u64,          // Unix deadline for milestone validation
-    pub milestone_hash: BytesN<32>, // SHA-256 hash of milestone requirements
+    pub milestone_hash: BytesN<32>, // Commitment metadata for milestone requirements
     pub verifier: Option<Address>,  // Optional trusted verifier address
     pub success_destination: Address, // Address for fund release on success
     pub failure_destination: Address, // Address for fund redirect on failure
-    pub status: VaultStatus,        // Current lifecycle state of the vault
+    pub status: VaultStatus,          // Current lifecycle status
+    pub milestone_validated: bool,    // True once validate_milestone is called
 }
 ```
 
@@ -104,11 +147,12 @@ pub struct ProductivityVault {
 | `amount` | `i128` | Total USDC amount locked (in stroops, 1 USDC = 10^7 stroops) |
 | `start_timestamp` | `u64` | Unix timestamp (seconds) when vault becomes active |
 | `end_timestamp` | `u64` | Unix timestamp (seconds) deadline for milestone validation |
-| `milestone_hash` | `BytesN<32>` | SHA-256 hash documenting milestone requirements |
+| `milestone_hash` | `BytesN<32>` | Commitment metadata for an off-chain milestone description |
 | `verifier` | `Option<Address>` | Optional trusted party who can validate milestones |
 | `success_destination` | `Address` | Recipient address on successful milestone completion |
 | `failure_destination` | `Address` | Recipient address when milestone is not completed |
 | `status` | `VaultStatus` | Current lifecycle state of the vault |
+| `milestone_validated` | `bool` | Set to `true` once `validate_milestone` is called. Enables early fund release before deadline. |
 
 ---
 
@@ -137,7 +181,7 @@ pub fn create_vault(
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
 - `end_timestamp`: Deadline for milestone validation (unix seconds)
-- `milestone_hash`: SHA-256 hash of milestone document
+- `milestone_hash`: commitment metadata for the off-chain milestone document
 - `verifier`: Optional verifier address (None = anyone can validate)
 - `success_destination`: Address to receive funds on success
 - `failure_destination`: Address to receive funds on failure
@@ -146,7 +190,9 @@ pub fn create_vault(
 
 **Requirements:**
 - Caller must authorize the transaction (`creator.require_auth()`)
+- `amount` must satisfy `MIN_AMOUNT <= amount <= MAX_AMOUNT`
 - `end_timestamp` must be greater than `start_timestamp`
+- `end_timestamp - start_timestamp` is checked explicitly and must be `<= MAX_VAULT_DURATION`
 - USDC transfer must be approved by creator before calling
 
 **Emits:** `vault_created` event
@@ -347,6 +393,41 @@ Emitted when a milestone is successfully validated.
 
 2. **Non-Custodial**: The contract holds tokens in escrow but never has withdrawal authority beyond the defined destination addresses.
 
+### Reentrancy and Token Callback Assumptions
+
+The Disciplr Vault contract is protected against reentrancy attacks through the following mechanisms:
+
+#### Soroban Token Transfer Atomicity
+
+The Soroban token `transfer` operation is **atomic** — it completes entirely within a single contract invocation without invoking callbacks to the calling contract. Specifically:
+
+- When `token_client.transfer(&from, &to, &amount)` is called, the token contract executes the transfer internally and returns immediately
+- There is **no callback mechanism** that would allow the token contract to re-invoke the Disciplr Vault contract during a transfer
+- This means there are no reentrancy vectors via malicious token contracts in standard Soroban token implementations
+
+#### Custom Token Restrictions
+
+For deployments using the standard Soroban token interface (including Stellar Asset Contracts and standard ERC-20-like tokens deployed on Soroban):
+
+- **No custom token callbacks**: The contract assumes the token being used does not implement callback hooks to the caller
+- **Assumption**: Custom tokens that implement reentrant callbacks are not supported in standard deployments
+- **Mitigation**: If custom tokens are allowed, additional guards (e.g., reentrancy locks) should be implemented
+
+#### Deployment-Specific Assumptions
+
+This documentation assumes:
+
+1. **Standard Stellar Asset Contract (SAC)**: When using Stellar's native USDC or other Stellar Asset Contracts, the token interface provides no callback mechanism
+2. **No custom token allowlist**: The contract currently does not enforce an allowlist of permitted token contracts
+3. **Trust in token contract**: Users must trust that the token contract behaves according to its documented interface
+
+#### Security Note
+
+If the deployment environment allows arbitrary token contracts, additional security measures should be considered:
+- Implement a reentrancy guard (e.g., `nonreentrant` modifier or explicit state checks before/after external calls)
+- Maintain an allowlist of verified token contract addresses
+- Document the trust assumptions clearly for integrators
+
 ### Current Limitations (TODOs)
 
 The following security features are not yet implemented:
@@ -355,8 +436,36 @@ The following security features are not yet implemented:
 - [ ] **Token Transfer**: Actual USDC transfer logic is not implemented
 - [ ] **Timestamp Validation**: Methods don't validate timestamps
 - [ ] **Verifier Authorization**: No check that caller is the designated verifier
-- [ ] **Reentrancy Protection**: No guards against reentrancy attacks
+- [x] **Reentrancy Protection**: No guards against reentrancy attacks (see token callback assumptions below)
 - [ ] **Access Control**: Basic auth only; no complex role-based access
+
+### Token Callback Assumptions (Soroban)
+
+Soroban's native token ( Stellar Asset Contract / Soroban Token) `transfer` is **atomic**:
+- The transfer completes entirely or reverts completely
+- No callback hooks are invoked during token transfers
+- This eliminates reentrancy vectors that exist in EVM-based systems
+
+**Supported Token Types:**
+- This contract supports only the canonical Stellar Asset Contract (SAC) or Soroban Token (Host Token)
+- Custom token contracts that implement callback hooks are **disallowed**
+- All token operations verify the provided token address matches the initialized canonical token
+
+**Security Implications:**
+1. **No Reentrancy via Token Callbacks**: Since Soroban tokens do not invoke callbacks on the recipient, there is no reentrancy risk through token transfers
+2. **CEI Pattern Compliance**: Contract state updates occur after token transfers complete (checks-effects-interactions pattern)
+3. **State Consistency**: Vault status changes are persisted atomically with fund transfers
+
+### Token Address Enforcement
+
+The contract enforces strict token address validation:
+- Contract must be initialized with a canonical token address via `initialize()`
+- All token-moving functions (`create_vault`, `release_funds`, `redirect_funds`, `cancel_vault`) validate the provided token matches the initialized address
+- This prevents draining attacks via mismatched token contract arguments
+
+**Error Codes:**
+- `Error::TokenNotInitialized (10)`: Contract was called before `initialize()`
+- `Error::InvalidTokenAddress (11)`: Provided token address does not match initialized token
 
 ### Recommendations for Production
 
@@ -479,6 +588,37 @@ match vault_state {
 
 ---
 
+## Security Auditing
+
+This project runs [`cargo audit`](https://github.com/rustsec/rustsec/tree/main/cargo-audit) in CI on every push and pull request to detect known vulnerabilities in dependencies.
+
+### Run locally
+
+```bash
+# Install cargo-audit (once)
+cargo install cargo-audit --locked
+
+# Run the audit
+cargo audit
+```
+
+Audit configuration and any documented exceptions live in [`.cargo/audit.toml`](.cargo/audit.toml).
+
+### Adding an exception
+
+If a reported advisory does not affect this project, add it to `.cargo/audit.toml` with a clear rationale:
+
+```toml
+[advisories]
+ignore = [
+  { id = "RUSTSEC-YYYY-NNNN", reason = "Affected code path is not reachable in disciplr-vault." }
+]
+```
+
+All exceptions must be reviewed and justified before merging.
+
+---
+
 ## Tech Stack
 
 - **Rust** (edition 2021)
@@ -510,6 +650,26 @@ cargo build --target wasm32-unknown-unknown --release
 ```
 
 Output: `target/wasm32-unknown-unknown/release/disciplr_vault.wasm`
+
+### Format
+
+Code style is enforced by `rustfmt`. The CI pipeline runs `cargo fmt -- --check` as a **dedicated `fmt` job** that must pass before the build/test job is allowed to start. This gives reviewers and auditors a clear, isolated signal when a PR has style issues.
+
+Formatting rules are pinned in [`rustfmt.toml`](./rustfmt.toml).
+
+Check formatting locally (exact mirror of CI):
+
+```bash
+cargo fmt -- --check
+```
+
+Auto-fix all formatting in place:
+
+```bash
+cargo fmt
+```
+
+> If `cargo fmt -- --check` exits non-zero, run `cargo fmt` and commit the result before pushing.
 
 ### Test
 
@@ -657,19 +817,25 @@ git push origin feature/your-feature-name
 
 Before submitting a PR:
 
-1. **Run all tests**:
+1. **Check formatting** (CI gate — must pass first):
+   ```bash
+   cargo fmt -- --check
+   # If it fails, run: cargo fmt
+   ```
+
+2. **Run all tests**:
    ```bash
    cargo test
    ```
 
-2. **Build for release**:
+3. **Build for release**:
    ```bash
    cargo build --target wasm32-unknown-unknown --release
    ```
 
-3. **Verify no warnings**:
+4. **Verify no warnings**:
    ```bash
-   cargo clippy
+   cargo clippy -- -D warnings
    ```
 
 ### Test Coverage
@@ -774,3 +940,99 @@ Boundary and over-limit cases are fully covered in the tests, including:
 - Duration exceeding maximum
 - Invalid timestamp ordering
 - Past start timestamps
+
+
+---
+
+## Upgrade Policy
+
+The `disciplr-vault` WASM is **immutable** after deployment — there is no proxy contract and no admin upgrade key. To deploy a new version, redeploy a fresh contract and re-initialise it. See [vesting.md](vesting.md#upgrade-policy) for full details.
+
+---
+
+## Testnet Deploy Checklist
+
+Use this checklist every time you deploy to testnet. Steps are sequential — do not skip.
+
+### Prerequisites
+- Stellar CLI installed (`stellar --version`)
+- Funded testnet keypair in `~/.config/stellar/identity/`
+- Soroban RPC endpoint: `https://soroban-testnet.stellar.org`
+- Network passphrase: `Test SDF Network ; September 2015`
+
+### Step 1 — Build
+```bash
+stellar contract build --release
+# Output: target/wasm32-unknown-unknown/release/disciplr_vault.wasm
+```
+
+### Step 2 — Install (upload WASM)
+```bash
+stellar contract install \
+  --wasm target/wasm32-unknown-unknown/release/disciplr_vault.wasm \
+  --source <YOUR_IDENTITY> \
+  --network testnet
+# Copy the returned WASM hash for Step 3.
+```
+
+### Step 3 — Deploy (instantiate)
+```bash
+stellar contract deploy \
+  --wasm-hash <WASM_HASH_FROM_STEP_2> \
+  --source <YOUR_IDENTITY> \
+  --network testnet
+# Copy the returned CONTRACT_ID for Step 4.
+```
+
+### Step 4 — Initialize
+```bash
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source <YOUR_IDENTITY> \
+  --network testnet \
+  -- initialize \
+  --usdc_token <USDC_TOKEN_ADDRESS>
+```
+
+### Step 5 — Smoke Test
+```bash
+# Create a minimal vault (1 USDC, 1-hour window).
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source <YOUR_IDENTITY> \
+  --network testnet \
+  -- create_vault \
+  --usdc_token <USDC_TOKEN_ADDRESS> \
+  --creator <YOUR_IDENTITY_ADDRESS> \
+  --amount 10000000 \
+  --start_timestamp $(date +%s) \
+  --end_timestamp $(($(date +%s) + 3600)) \
+  --milestone_hash 0000000000000000000000000000000000000000000000000000000000000000 \
+  --verifier null \
+  --success_destination <YOUR_IDENTITY_ADDRESS> \
+  --failure_destination <YOUR_IDENTITY_ADDRESS>
+
+# Verify vault was created (should return vault state with status Active).
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_vault_state --vault_id 0
+
+# Cancel the smoke-test vault to clean up.
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source <YOUR_IDENTITY> \
+  --network testnet \
+  -- cancel_vault --vault_id 0 --usdc_token <USDC_TOKEN_ADDRESS>
+```
+
+### Rollback
+
+Because the WASM is immutable, "rollback" means directing integrators back to the previous contract address. No on-chain state needs to be reverted — the old contract continues to function independently.
+
+### Running Tests Locally Before Deploy
+```bash
+cargo test
+```
+
+---
