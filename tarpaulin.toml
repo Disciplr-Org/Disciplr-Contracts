@@ -4,12 +4,19 @@ out = ["Html", "Lcov", "Stdout"]
 output-dir = "coverage"
 
 [run]
-# Run all tests
 all-features = true
 workspace = true
 
-# Exclude test code from coverage
-exclude-files = []
+# Exclude test-only modules from coverage denominator so the 95 % threshold
+# reflects production logic only, not test helper code.
+exclude-files = ["src/test.rs", "tests/*"]
 
-# Count branches for more accurate coverage
+# Branch coverage gives a more accurate picture for match/if chains.
 count-branches = true
+
+<<<<<<< audit/sdk-review
+# Prevent runaway test processes from blocking CI.
+timeout = "120"
+=======
+# NOTE: For network-incident operations, no specific coverage exclusions are currently required.
+>>>>>>> main

@@ -1,41 +1,18 @@
-#![no_std]
-#![allow(clippy::too_many_arguments)]
+[report]
+# Tarpaulin configuration for accurate coverage reporting
+out = ["Html", "Lcov", "Stdout"]
+output-dir = "coverage"
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
-};
+[run]
+# Run all tests
+all-features = true
+workspace = true
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-//
-// Contract-specific errors used in revert paths. Follows Soroban error
-// conventions: use Result<T, Error> and return Err(Error::Variant) instead
-// of generic panics where appropriate.
+# Exclude test code from coverage
+exclude-files = []
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    /// Vault with the given id does not exist.
-    VaultNotFound = 1,
-    /// Caller is not authorized for this operation (e.g. not verifier/creator, or release before deadline without validation).
-    NotAuthorized = 2,
-    /// Vault is not in Active status (e.g. already Completed, Failed, or Cancelled).
-    VaultNotActive = 3,
-    /// Timestamp constraint violated (e.g. redirect before end_timestamp, or invalid time window).
-    InvalidTimestamp = 4,
-    /// Validation is no longer allowed because current time is at or past end_timestamp.
-    MilestoneExpired = 5,
-    /// Vault is in an invalid status for the requested operation.
-    InvalidStatus = 6,
-    /// Amount must be positive (e.g. create_vault amount <= 0).
-    InvalidAmount = 7,
-    /// start_timestamp must be strictly less than end_timestamp.
-    InvalidTimestamps = 8,
-    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
-    DurationTooLong = 9,
-}
+# Count branches for more accurate coverage
+count-branches = true
 
 // ---------------------------------------------------------------------------
 // Data types

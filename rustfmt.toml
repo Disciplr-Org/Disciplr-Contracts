@@ -1,0 +1,6 @@
+# Rust edition — must match Cargo.toml
+edition = "2021"
+
+# Enforce consistent import grouping: std → external → crate-local
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
