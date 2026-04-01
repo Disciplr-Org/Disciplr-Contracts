@@ -29,12 +29,13 @@ Single contract **disciplr-vault** with:
 - **Data model:** `ProductivityVault` (creator, amount, start/end timestamps, milestone hash, optional verifier, success/failure destinations, status).
 - **Status:** `Active`, `Completed`, `Failed`, `Cancelled`.
 - **Methods:**
-  - ✅ `create_vault(...)` — create vault and transfer USDC from creator to contract (IMPLEMENTED)
-  - `validate_milestone(vault_id)` — verifier validates milestone (release logic TODO).
-  - `release_funds(vault_id)` — release to success destination (TODO).
-  - `redirect_funds(vault_id)` — redirect to failure destination (TODO).
-  - `cancel_vault(vault_id)` — cancel and return funds to creator; sets status to `Cancelled`.
-  - `get_vault_state(vault_id)` — return vault state from storage.
+  - ✅ `create_vault(...)` — Create vault and transfer USDC from creator to contract.
+  - ✅ `validate_milestone(vault_id)` — Verifier (or authorized party) validates milestone.
+  - ✅ `release_funds(vault_id, usdc_token)` — Release to success destination after validation or deadline.
+  - ✅ `redirect_funds(vault_id, usdc_token)` — Redirect to failure destination after deadline without validation.
+  - ✅ `cancel_vault(vault_id, usdc_token)` — Cancel and return funds to creator (blocked if validated).
+  - ✅ `get_vault_state(vault_id)` — Return vault state from storage.
+  - ✅ `vault_count()` — Return total number of vaults.
 
 ## Recent Updates
 
@@ -172,6 +173,7 @@ Creates a new productivity vault and locks USDC funds.
 ```rust
 pub fn create_vault(
     env: Env,
+    usdc_token: Address,
     creator: Address,
     amount: i128,
     start_timestamp: u64,
@@ -180,10 +182,11 @@ pub fn create_vault(
     verifier: Option<Address>,
     success_destination: Address,
     failure_destination: Address,
-) -> u32
+) -> Result<u32, Error>
 ```
 
 **Parameters:**
+- `usdc_token`: Address of the USDC token contract
 - `creator`: Address of the vault creator (must authorize transaction)
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
@@ -192,12 +195,16 @@ pub fn create_vault(
 - `milestone_hash`: commitment metadata for the off-chain milestone document
 =======
 - `milestone_hash`: SHA-256 hash of milestone document
+<<<<<<< Formal-interface-spec-for-Stellar-CLI-/-laboratory
+- `verifier`: Optional verifier address (`None` = only the creator may validate)
+=======
 >>>>>>> main
 - `verifier`: Optional verifier address (None = anyone can validate)
+>>>>>>> main
 - `success_destination`: Address to receive funds on success
 - `failure_destination`: Address to receive funds on failure
 
-**Returns:** `u32` - Unique vault identifier
+**Returns:** `Result<u32, Error>` - Unique vault identifier on success.
 
 **Requirements:**
 - Caller must authorize the transaction (`creator.require_auth()`)
@@ -219,18 +226,18 @@ pub fn create_vault(
 Allows the verifier (or authorized party) to validate milestone completion and release funds.
 
 ```rust
-pub fn validate_milestone(env: Env, vault_id: u32) -> bool
+pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to validate
 
-**Returns:** `bool` - True if validation successful
+**Returns:** `Result<bool, Error>` - True if validation successful
 
-**Requirements (TODO):**
-- Vault must exist and be in `Active` status
-- Caller must be the designated verifier (if set)
-- Current timestamp must be before `end_timestamp`
+**Requirements:**
+- Vault must exist and be in `Active` status.
+- Caller must be the designated verifier (if set) or the creator (if no verifier).
+- Current timestamp must be before `end_timestamp`.
 
 **Emits:** `milestone_validated` event
 
@@ -241,19 +248,20 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> bool
 Releases locked funds to the success destination (typically after validation).
 
 ```rust
-pub fn release_funds(env: Env, vault_id: u32) -> bool
+pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to release funds from
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if release successful
+**Returns:** `Result<bool, Error>` - True if release successful
 
-**Requirements (TODO):**
-- Vault status must be `Active`
-- Caller must be authorized (verifier or contract logic)
-- Transfers USDC to `success_destination`
-- Sets status to `Completed`
+**Requirements:**
+- Vault status must be `Active`.
+- Either milestone is validated OR deadline has passed.
+- Transfers USDC to `success_destination`.
+- Sets status to `Completed`.
 
 ---
 
@@ -262,19 +270,21 @@ pub fn release_funds(env: Env, vault_id: u32) -> bool
 Redirects funds to the failure destination when milestone is not completed by deadline.
 
 ```rust
-pub fn redirect_funds(env: Env, vault_id: u32) -> bool
+pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to redirect funds from
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if redirect successful
+**Returns:** `Result<bool, Error>` - True if redirect successful
 
-**Requirements (TODO):**
-- Vault status must be `Active`
-- Current timestamp must be past `end_timestamp`
-- Transfers USDC to `failure_destination`
-- Sets status to `Failed`
+**Requirements:**
+- Vault status must be `Active`.
+- Current timestamp must be past `end_timestamp`.
+- Milestone must NOT have been validated.
+- Transfers USDC to `failure_destination`.
+- Sets status to `Failed`.
 
 ---
 
@@ -283,19 +293,21 @@ pub fn redirect_funds(env: Env, vault_id: u32) -> bool
 Allows the creator to cancel the vault and retrieve locked funds.
 
 ```rust
-pub fn cancel_vault(env: Env, vault_id: u32) -> bool
+pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to cancel
+- `usdc_token`: Address of the USDC token contract
 
-**Returns:** `bool` - True if cancellation successful
+**Returns:** `Result<bool, Error>` - True if cancellation successful
 
-**Requirements (TODO):**
-- Caller must be the vault creator
-- Vault status must be `Active`
-- Returns USDC to creator
-- Sets status to `Cancelled`
+**Requirements:**
+- Caller must be the vault creator (`creator.require_auth()`).
+- Vault status must be `Active`.
+- Milestone must NOT have been validated.
+- Returns USDC to creator.
+- Sets status to `Cancelled`.
 
 ---
 

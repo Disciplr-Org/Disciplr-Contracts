@@ -212,8 +212,12 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> bool
 
 ### `release_funds`
 
+<<<<<<< Formal-interface-spec-for-Stellar-CLI-/-laboratory
+Releases locked funds to the success destination (typically after validation or deadline reached).
+=======
 <<<<<<< doc/changelog
 Releases locked funds to `success_destination`. Allowed after milestone validation or once the deadline has passed.
+>>>>>>> main
 
 ```rust
 pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
@@ -246,6 +250,8 @@ pub fn release_funds(env: Env, vault_id: u32) -> bool
 - Transfers USDC to `success_destination`
 - Sets status to `Completed`
 >>>>>>> main
+
+**Emits:** `funds_released` event with topic `(Symbol("funds_released"), vault_id)` and data `amount`.
 
 ---
 
@@ -287,6 +293,8 @@ pub fn redirect_funds(env: Env, vault_id: u32) -> bool
 - Sets status to `Failed`
 >>>>>>> main
 
+**Emits:** `funds_redirected` event with topic `(Symbol("funds_redirected"), vault_id)` and data `amount`.
+
 ---
 
 ### `cancel_vault`
@@ -320,6 +328,18 @@ pub fn cancel_vault(env: Env, vault_id: u32) -> bool
 - Vault status must be `Active`
 - Returns USDC to creator
 - Sets status to `Cancelled`
+<<<<<<< Formal-interface-spec-for-Stellar-CLI-/-laboratory
+
+**Emits:** `vault_cancelled` event with topic `(Symbol("vault_cancelled"), vault_id)` and data `()`.
+
+> **Security note:** Once the verifier (or authorised party) has called
+> `validate_milestone`, the escrow outcome is determined. The creator is
+> blocked from cancelling so that validated funds can only flow to
+> `success_destination` via `release_funds`. This preserves the escrow
+> invariant and prevents a malicious or regretful creator from reclaiming
+> funds after a valid completion has been certified.
+=======
+>>>>>>> main
 >>>>>>> main
 
 ---
