@@ -69,7 +69,9 @@ pub struct ProductivityVault {
     pub start_timestamp: u64,
     /// Ledger timestamp after which deadline-based release is allowed.
     pub end_timestamp: u64,
-    /// Hash representing the milestone the creator commits to.
+    /// Commitment metadata for the off-chain milestone description.
+    /// This hash is stored and compared only as opaque bytes; it is not used
+    /// as an on-chain cryptographic primitive or security boundary.
     pub milestone_hash: BytesN<32>,
     /// Optional designated verifier. When `Some(addr)`, only that address may call `validate_milestone`.
     /// When `None`, only the creator may call `validate_milestone` (no third-party validation).
@@ -169,6 +171,11 @@ impl DisciplrVault {
     /// - `amount` must be within [`MIN_AMOUNT`, `MAX_AMOUNT`]; otherwise returns `Error::InvalidAmount`.
     /// - `start_timestamp` must be less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
     /// - `end_timestamp - start_timestamp` must fit in `u64` and be at most [`MAX_VAULT_DURATION`].
+    ///
+    /// The `milestone_hash` parameter is commitment metadata for an off-chain
+    /// milestone description. The contract stores it as opaque bytes for later
+    /// reference; it does not depend on collision resistance or post-quantum
+    /// properties for authorization or fund safety.
     ///
     /// # Prerequisites
     /// Creator must have sufficient USDC balance and authorize the transaction.
