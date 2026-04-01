@@ -29,6 +29,8 @@ fn setup() -> (
     let usdc_addr = usdc_token.address();
     let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
 
+    client.initialize(&usdc_addr);
+
     (env, client, usdc_addr, usdc_asset)
 }
 
@@ -118,6 +120,71 @@ fn test_duration_exceeds_max() {
         &now,
         &(now + MAX_VAULT_DURATION + 1),
         &BytesN::from_array(&env, &[0u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+}
+
+#[test]
+fn test_duration_checked_sub_handles_u64_max_end_timestamp() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let start = u64::MAX - MAX_VAULT_DURATION;
+    let end = u64::MAX;
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &start,
+        &end,
+        &BytesN::from_array(&env, &[2u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    assert_eq!(vault_id, 0u32);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_duration_checked_sub_rejects_u64_max_end_timestamp_over_limit() {
+    let (env, client, usdc, _usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &(u64::MAX - MAX_VAULT_DURATION - 1),
+        &u64::MAX,
+        &BytesN::from_array(&env, &[3u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_amount_i128_max_rejected_explicitly() {
+    let (env, client, usdc, _usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &i128::MAX,
+        &0u64,
+        &1u64,
+        &BytesN::from_array(&env, &[4u8; 32]),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
@@ -300,6 +367,7 @@ fn test_get_vault_state_cancelled_vault_remains_readable() {
 }
 
 #[test]
+<<<<<<< test/error-variant-coverage
 fn test_error_variants_coverage() {
     let (env, client, usdc, usdc_asset) = setup();
 
@@ -371,4 +439,129 @@ fn test_error_variants_coverage() {
         disciplr_vault::Error::InvalidTimestamps,
         disciplr_vault::Error::DurationTooLong,
     ];
+=======
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_create_vault_wrong_token_address() {
+    let (env, client, _usdc, usdc_asset) = setup();
+
+    let wrong_token_admin = Address::generate(&env);
+    let wrong_token = env.register_stellar_asset_contract_v2(wrong_token_admin.clone());
+    let wrong_addr = wrong_token.address();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &(MIN_AMOUNT * 2));
+
+    client.create_vault(
+        &wrong_addr,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[2u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn test_double_initialization() {
+    let (_env, client, usdc, _usdc_asset) = setup();
+    client.initialize(&usdc);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_release_funds_wrong_token_address() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let wrong_token_admin = Address::generate(&env);
+    let wrong_token = env.register_stellar_asset_contract_v2(wrong_token_admin.clone());
+    let wrong_addr = wrong_token.address();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+    usdc_asset.mint(&creator, &(MIN_AMOUNT * 2));
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[3u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    env.ledger().set_timestamp(now + 86_401);
+
+    client.release_funds(&vault_id, &wrong_addr);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_cancel_vault_wrong_token_address() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let wrong_token_admin = Address::generate(&env);
+    let wrong_token = env.register_stellar_asset_contract_v2(wrong_token_admin.clone());
+    let wrong_addr = wrong_token.address();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+    usdc_asset.mint(&creator, &(MIN_AMOUNT * 2));
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[4u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    client.cancel_vault(&vault_id, &wrong_addr);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_redirect_funds_wrong_token_address() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let wrong_token_admin = Address::generate(&env);
+    let wrong_token = env.register_stellar_asset_contract_v2(wrong_token_admin.clone());
+    let wrong_addr = wrong_token.address();
+
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+    usdc_asset.mint(&creator, &(MIN_AMOUNT * 2));
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[5u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    env.ledger().set_timestamp(now + 86_401);
+
+    client.redirect_funds(&vault_id, &wrong_addr);
+>>>>>>> main
 }
