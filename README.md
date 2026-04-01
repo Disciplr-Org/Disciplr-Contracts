@@ -588,6 +588,37 @@ match vault_state {
 
 ---
 
+## Security Auditing
+
+This project runs [`cargo audit`](https://github.com/rustsec/rustsec/tree/main/cargo-audit) in CI on every push and pull request to detect known vulnerabilities in dependencies.
+
+### Run locally
+
+```bash
+# Install cargo-audit (once)
+cargo install cargo-audit --locked
+
+# Run the audit
+cargo audit
+```
+
+Audit configuration and any documented exceptions live in [`.cargo/audit.toml`](.cargo/audit.toml).
+
+### Adding an exception
+
+If a reported advisory does not affect this project, add it to `.cargo/audit.toml` with a clear rationale:
+
+```toml
+[advisories]
+ignore = [
+  { id = "RUSTSEC-YYYY-NNNN", reason = "Affected code path is not reachable in disciplr-vault." }
+]
+```
+
+All exceptions must be reviewed and justified before merging.
+
+---
+
 ## Tech Stack
 
 - **Rust** (edition 2021)

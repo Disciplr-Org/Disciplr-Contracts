@@ -1,0 +1,11 @@
+[advisories]
+# List advisory IDs to ignore, with a mandatory comment explaining the rationale.
+# Example:
+#   ignore = [{ id = "RUSTSEC-2023-XXXX", reason = "Only affects feature X which we do not use." }]
+ignore = []
+
+[output]
+# Fail CI on vulnerabilities of these types.
+deny = ["vulnerability", "unsound"]
+# Warn (do not fail) on these types.
+warn = ["unmaintained", "yanked"]
