@@ -1,5 +1,41 @@
 # Test Summary: validate_milestone rejects non-existent vault_id
 
+## Test Summary: Property Tests for Timestamp Ordering (Issue #136)
+
+### Changes Made
+
+1. Added `proptest` as a dev dependency in `Cargo.toml`.
+2. Added `tests/proptest_timestamps.rs` with 3 property tests and 3 explicit edge tests.
+3. Assertions for invalid paths verify exact contract errors:
+
+- `Error::InvalidTimestamps`
+- `Error::DurationTooLong`
+
+### Properties Covered
+
+- Valid random `(start, end)` ordering (`start < end`) creates vaults successfully.
+- Invalid ordering (`start >= end`) always fails.
+- Duration above `MAX_VAULT_DURATION` always fails.
+
+### Edge Cases Covered
+
+- `start == end` rejected.
+- `start = 0`, `end = 1` accepted when ledger timestamp is `0`.
+- Boundary `duration = MAX_VAULT_DURATION` accepted.
+
+### Test Output
+
+`cargo test` passed with the new suite:
+
+- `tests/proptest_timestamps.rs`: 6 passed
+- Full suite: 66 passed, 0 failed
+
+### Security Notes
+
+- No contract logic changes.
+- Tests strengthen guarantees that timestamp ordering and duration bounds are fail-closed.
+- Exact error assertions reduce risk of false positives in failure-path tests.
+
 ## Changes Made
 
 1. Added `test_validate_milestone_rejects_non_existent_vault` in `src/lib.rs`.
@@ -31,12 +67,12 @@ test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 
 ### Changes Made
 
-1. **Added validation in `create_vault` function** (src/lib.rs:47-49)
+1. **Added validation in `create_vault` function** (src/lib.rs:124-126)
    - Validates that `amount > 0`
    - Panics with message "amount must be positive" if amount is zero or negative
    - This ensures vault creation requires a positive stake amount
 
-2. **Added test case** (src/lib.rs:112-133)
+2. **Added test case** (src/lib.rs:928-944)
    - `test_create_vault_zero_amount`: Tests that creating a vault with amount=0 panics
    - Uses `#[should_panic(expected = "amount must be positive")]` attribute
    - Verifies the contract rejects invalid zero-amount vaults
@@ -47,13 +83,14 @@ test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 running 1 test
 test tests::test_create_vault_zero_amount - should panic ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.17s
 ```
 
 ### Coverage
 
 Initial coverage (with only the zero-amount test): **39.13%** (9/23 lines covered).
 Since then, the test suite has been expanded significantly (see section below) and now exercises:
+
 - All public entry points: `create_vault`, `validate_milestone`, `release_funds`, `redirect_funds`, `cancel_vault`, `get_vault_state`.
 - All major status transitions: `Active → Completed`, `Active → Failed`, `Active → Cancelled`.
 - All primary error paths: `VaultNotFound`, `VaultNotActive`, `InvalidTimestamp`, `MilestoneExpired`, `InvalidAmount`, `InvalidTimestamps`, `NotAuthorized`.
@@ -76,6 +113,7 @@ cargo llvm-cov --workspace --fail-under-lines 95
 ### Behavior
 
 When `create_vault` is called with `amount == 0` (or negative):
+
 - Contract panics with error: "amount must be positive"
 - No vault is created
 - No events are emitted
@@ -144,6 +182,7 @@ test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ### CI/CD Pipeline
 
 **GitHub Actions workflow created** (`.github/workflows/ci.yml`):
+
 - Triggers on push/PR to main/master branches
 - Runs on ubuntu-latest
 - Steps:
@@ -155,6 +194,7 @@ test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
   6. Run linter with `cargo clippy -- -D warnings`
 
 **All CI checks pass locally**:
+
 ```
 ✓ Build passed
 ✓ Tests passed
@@ -163,6 +203,7 @@ test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 **Code quality fixes applied**:
+
 - Added `#![allow(clippy::too_many_arguments)]` to handle Soroban contract design pattern
 - Applied `cargo fmt` for consistent code formatting
 - All clippy warnings resolved

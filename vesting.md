@@ -4,6 +4,16 @@
 
 The Disciplr Vault is a Soroban smart contract deployed on the Stellar blockchain that enables **programmable time-locked USDC vaults** for productivity-based milestone funding. It allows creators to lock USDC tokens with specific milestones and conditions, ensuring funds are only released upon verified completion or redirected to a failure destination if milestones are not met.
 
+## Versioning Notice
+
+The `DisciplrVault` contract includes a `version()` method to expose its current semantic version (as defined in `Cargo.toml`). Integrators should use this method to verify that the deployed bytecode matches the expected release.
+
+```rust
+pub fn version(env: Env) -> Symbol
+```
+
+The version string (e.g., `0.1.0`) maps directly to git tags in the repository (e.g., `v0.1.0`).
+
 ### Use Cases
 
 - **Vesting schedules**: Lock tokens that vest over time based on milestone completion
@@ -297,6 +307,7 @@ Emitted when a milestone is successfully validated.
 
 ## Security and Trust Model
 
+<<<<<<< doc/cei-soroban
 ### trust Model
 
 1. **Absolute Verifier Power**: If a `verifier` is designated, they hold absolute power over the milestone validation process. The contract cannot verify off-chain project completion; it relies entirely on the `verifier`'s signature or authorization.
@@ -313,6 +324,11 @@ Emitted when a milestone is successfully validated.
 The Disciplr Vault strictly follows the **Checks-Effects-Interactions** pattern for all state-changing operations, especially token transfers. This is a critical security practice in smart contract development to prevent reentrancy attacks and ensure state consistency.
 
 #### The Pattern in Practice:
+=======
+## Security and Trust Model
+
+This section outlines the security properties, trust assumptions, and known limitations of the Disciplr Vault contract.
+>>>>>>> main
 
 1.  **Checks**: All prerequisites are validated first.
     *   Authorization (`require_auth`)
@@ -327,6 +343,7 @@ The Disciplr Vault strictly follows the **Checks-Effects-Interactions** pattern 
     *   `token_client.transfer(...)` to move USDC funds.
     *   If the interaction fails, the entire Soroban transaction reverts, ensuring the state update is also undone (atomicity).
 
+<<<<<<< doc/cei-soroban
 #### Why CEI?
 While Soroban provides inherent atomicity (reverting all changes if any part fails), following CEI is essential for:
 *   **Reentrancy Prevention**: Prevents a malicious recipient contract from re-entering the vault contract and attempting to double-release funds before the state is updated.
@@ -338,6 +355,35 @@ While Soroban provides inherent atomicity (reverting all changes if any part fai
 1. **USDC Token Address Consistency**: The `usdc_token` address is not pinned to the vault at creation. Instead, it is passed as an argument to release/redirect functions. While this provides flexibility, it requires callers to ensure they are interacting with the correct asset contract.
 2. **No Emergency Stops**: There is currently no "pause" or circuit breaker mechanism. Once a vault is active, it follows the defined lifecycle until completion or cancellation.
 3. **Storage Quotas**: Contract performance and cost are subject to Soroban storage fees and quotas.
+=======
+1. **Verifier Trust (Critical)**: When a `verifier` is designated (via `Some(Address)`), that address has **absolute power** to validate the milestone and cause funds to be released to the `success_destination` before the deadline. If the verifier is compromised or malicious, they can release funds prematurely.
+2. **Creator Power**: If no `verifier` is set (`None`), only the `creator` can validate the milestone. Additionally, the `creator` can cancel the vault at any time to reclaim funds, assuming the vault is still `Active`. 
+3. **Immutable Destinations**: Once a vault is created, the `success_destination` and `failure_destination` are immutable. This prevents redirection of funds after the vault is funded.
+
+### Security Assumptions
+
+1. **Stellar Ledger Integrity**: We assume the underlying Stellar blockchain and Soroban runtime correctly enforce authorization (`require_auth`) and maintain state integrity.
+2. **Ledger Timestamp**: The contract relies on `env.ledger().timestamp()` for all time-based logic. We assume ledger timestamps are reasonably accurate.
+3. **Token Contract Behavior**: The contract interacts with a USDC token contract (standard Soroban token interface).
+
+### Known Limitations & Risks
+
+1. **USDC Token Address Consistency**: The `usdc_token` address is not stored in the vault data. Instead, it is passed as an argument to methods.
+   > [!WARNING]
+   > There is a risk that a caller provides a different token address than the one used during vault creation.
+2. **CEI Pattern Violations**: Some methods perform token transfers before updating the internal vault status.
+3. **No Administrative Overrides**: There is no "admin" role with the power to rescue funds from a stalled vault.
+4. **Lack of Reentrancy Guards**: The contract does not currently implement explicit reentrancy guards, relying on Soroban's atomicity.
+
+### Recommendations for Production
+
+1. **Use Soroban Token Interface**: Implement standard token operations for USDC.
+2. **Add Access Control**: Implement `Ownable` pattern for admin functions.
+3. **Circuit Breaker**: Add emergency pause functionality.
+4. **Upgradeability**: Consider proxy pattern for contract upgrades.
+5. **Comprehensive Tests**: Achieve 95%+ test coverage.
+6. **External Audits**: Have security experts review before mainnet deployment.
+>>>>>>> main
 
 ---
 

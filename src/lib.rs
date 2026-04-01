@@ -1,41 +1,18 @@
-#![no_std]
-#![allow(clippy::too_many_arguments)]
+[report]
+# Tarpaulin configuration for accurate coverage reporting
+out = ["Html", "Lcov", "Stdout"]
+output-dir = "coverage"
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
-};
+[run]
+# Run all tests
+all-features = true
+workspace = true
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-//
-// Contract-specific errors used in revert paths. Follows Soroban error
-// conventions: use Result<T, Error> and return Err(Error::Variant) instead
-// of generic panics where appropriate.
+# Exclude test code from coverage
+exclude-files = []
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    /// Vault with the given id does not exist.
-    VaultNotFound = 1,
-    /// Caller is not authorized for this operation (e.g. not verifier/creator, or release before deadline without validation).
-    NotAuthorized = 2,
-    /// Vault is not in Active status (e.g. already Completed, Failed, or Cancelled).
-    VaultNotActive = 3,
-    /// Timestamp constraint violated (e.g. redirect before end_timestamp, or invalid time window).
-    InvalidTimestamp = 4,
-    /// Validation is no longer allowed because current time is at or past end_timestamp.
-    MilestoneExpired = 5,
-    /// Vault is in an invalid status for the requested operation.
-    InvalidStatus = 6,
-    /// Amount must be positive (e.g. create_vault amount <= 0).
-    InvalidAmount = 7,
-    /// start_timestamp must be strictly less than end_timestamp.
-    InvalidTimestamps = 8,
-    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
-    DurationTooLong = 9,
-}
+# Count branches for more accurate coverage
+count-branches = true
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -199,6 +176,7 @@ impl DisciplrVault {
 
     /// Allows the verifier (or authorized party) to validate milestone completion.
     ///
+<<<<<<< doc/cei-soroban
     /// This function follows the **Checks-Effects-Interactions** pattern:
     /// 1. **Checks**: Verifies vault exists, is `Active`, and the caller is authorized.
     /// 2. **Effects**: Sets `milestone_validated = true` and emits `milestone_validated`.
@@ -208,6 +186,14 @@ impl DisciplrVault {
     /// - `Error::VaultNotActive`: if the vault is already in a terminal state.
     /// - `Error::MilestoneExpired`: if the current time is at or past `end_timestamp`.
     /// - `Error::NotAuthorized`: if the caller is not the `verifier` (or `creator` if no verifier).
+=======
+    /// # Safety and Trust
+    /// When verifier is `Some(addr)`, only that address may validate; when `None`, only the creator may validate.
+    /// Rejects when current time >= `end_timestamp` (`Error::MilestoneExpired`).
+    ///
+    /// # Events
+    /// Emits `milestone_validated` on success.
+>>>>>>> main
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -244,6 +230,7 @@ impl DisciplrVault {
     // release_funds
     // -----------------------------------------------------------------------
 
+<<<<<<< doc/cei-soroban
     /// Releases vault funds to the success destination.
     ///
     /// This function follows the **Checks-Effects-Interactions** pattern:
@@ -255,6 +242,16 @@ impl DisciplrVault {
     /// - `Error::VaultNotFound`: if `vault_id` does not exist.
     /// - `Error::VaultNotActive`: if the vault is already in a terminal state.
     /// - `Error::NotAuthorized`: if called before deadline without milestone validation.
+=======
+    /// Release vault funds to `success_destination`.
+    ///
+    /// # Prerequisites
+    /// - Vault status must be `Active`.
+    /// - Deadline reached (`now >= end_timestamp`) OR milestone validated (`milestone_validated == true`).
+    ///
+    /// # Events
+    /// Emits `funds_released` with the released amount.
+>>>>>>> main
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -300,6 +297,7 @@ impl DisciplrVault {
     // redirect_funds
     // -----------------------------------------------------------------------
 
+<<<<<<< doc/cei-soroban
     /// Redirects funds to the failure destination.
     ///
     /// This function follows the **Checks-Effects-Interactions** pattern:
@@ -311,6 +309,17 @@ impl DisciplrVault {
     /// - `Error::VaultNotFound`, `Error::VaultNotActive`.
     /// - `Error::InvalidTimestamp`: if called before the `end_timestamp`.
     /// - `Error::NotAuthorized`: if the milestone has already been validated.
+=======
+    /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    ///
+    /// # Prerequisites
+    /// - Vault status must be `Active`.
+    /// - Current time must be strictly past `end_timestamp`.
+    /// - Milestone must NOT have been validated.
+    ///
+    /// # Events
+    /// Emits `funds_redirected` with the redirected amount.
+>>>>>>> main
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -357,6 +366,7 @@ impl DisciplrVault {
 
     /// Cancel vault and return funds to creator.
     ///
+<<<<<<< doc/cei-soroban
     /// This function follows the **Checks-Effects-Interactions** pattern:
     /// 1. **Checks**: Verifies vault exists, is `Active`, and `creator` authorization.
     /// 2. **Effects**: Sets `status = Cancelled` and emits `vault_cancelled`.
@@ -365,6 +375,14 @@ impl DisciplrVault {
     /// # Errors
     /// - `Error::VaultNotFound`, `Error::VaultNotActive`.
     /// - `Error::NotAuthorized`: if `creator.require_auth()` fails.
+=======
+    /// # Prerequisites
+    /// - Only the creator may call this method (`creator.require_auth()`).
+    /// - Vault status must be `Active`.
+    ///
+    /// # Events
+    /// Emits `vault_cancelled`.
+>>>>>>> main
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -420,6 +438,14 @@ impl DisciplrVault {
             .instance()
             .get(&DataKey::VaultCount)
             .unwrap_or(0)
+    }
+
+    /// Return the contract version string.
+    ///
+    /// This follows the versioning defined in `Cargo.toml`. Useful for
+    /// integrators and auditors to verify the deployed bytecode.
+    pub fn version(env: Env) -> Symbol {
+        Symbol::new(&env, env!("CARGO_PKG_VERSION"))
     }
 }
 
@@ -852,6 +878,16 @@ mod tests {
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Completed);
     }
+
+    #[test]
+    fn test_version() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+        let version = client.version();
+        // Since we know Cargo.toml has version 0.1.0
+        assert_eq!(version, Symbol::new(&setup.env, "0.1.0"));
+    }
+}
 
     #[test]
     fn test_release_funds_after_deadline() {

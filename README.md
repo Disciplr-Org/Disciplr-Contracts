@@ -1,4 +1,20 @@
-# Disciplr Contracts
+# Disciplr-Contracts
+
+Soroban-based productivity vaults for the Disciplr platform.
+
+## Versioning
+
+This project uses semantic versioning. The version string is defined in `Cargo.toml` and is baked into the contract bytecode at compile time.
+
+Integrators and auditors can verify the contract version by calling the read-only `version()` method:
+
+```rust
+pub fn version(env: Env) -> Symbol
+```
+
+The version returned by this method maps directly to a git release tag in this repository (e.g., version `0.1.0` corresponds to tag `v0.1.0`).
+
+## Overview
 
 Soroban smart contracts for [Disciplr](https://github.com/your-org/Disciplr): programmable time-locked USDC vaults on Stellar.
 
