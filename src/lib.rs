@@ -99,6 +99,30 @@ pub enum DataKey {
     TokenAddress,
 }
 
+fn ensure_amount_in_range(amount: i128) -> Result<i128, Error> {
+    if !(MIN_AMOUNT..=MAX_AMOUNT).contains(&amount) {
+        return Err(Error::InvalidAmount);
+    }
+
+    Ok(amount)
+}
+
+fn ensure_valid_duration(start_timestamp: u64, end_timestamp: u64) -> Result<u64, Error> {
+    let duration = end_timestamp
+        .checked_sub(start_timestamp)
+        .ok_or(Error::InvalidTimestamps)?;
+
+    if duration == 0 {
+        return Err(Error::InvalidTimestamps);
+    }
+
+    if duration > MAX_VAULT_DURATION {
+        return Err(Error::DurationTooLong);
+    }
+
+    Ok(duration)
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -142,8 +166,9 @@ impl DisciplrVault {
     /// Create a new productivity vault. Transfers USDC from creator to contract.
     ///
     /// # Validation Rules
-    /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
-    /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - `amount` must be within [`MIN_AMOUNT`, `MAX_AMOUNT`]; otherwise returns `Error::InvalidAmount`.
+    /// - `start_timestamp` must be less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - `end_timestamp - start_timestamp` must fit in `u64` and be at most [`MAX_VAULT_DURATION`].
     ///
     /// # Prerequisites
     /// Creator must have sufficient USDC balance and authorize the transaction.
@@ -177,15 +202,8 @@ impl DisciplrVault {
         if start_timestamp < current_time {
             return Err(Error::InvalidTimestamp);
         }
-        if end_timestamp <= start_timestamp {
-            return Err(Error::InvalidTimestamps);
-        }
 
-        // Validate duration
-        let duration = end_timestamp - start_timestamp;
-        if duration > MAX_VAULT_DURATION {
-            return Err(Error::DurationTooLong);
-        }
+        ensure_valid_duration(start_timestamp, end_timestamp)?;
 
         // Pull USDC from creator into this contract.
         let token_client = token::Client::new(&env, &usdc_token);
@@ -288,6 +306,7 @@ impl DisciplrVault {
             .instance()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
+        let amount = ensure_amount_in_range(vault.amount)?;
 
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive);
@@ -307,16 +326,14 @@ impl DisciplrVault {
         token_client.transfer(
             &env.current_contract_address(),
             &vault.success_destination,
-            &vault.amount,
+            &amount,
         );
 
         vault.status = VaultStatus::Completed;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_released"), vault_id),
-            vault.amount,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "funds_released"), vault_id), amount);
         Ok(true)
     }
 
@@ -332,6 +349,7 @@ impl DisciplrVault {
             .instance()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
+        let amount = ensure_amount_in_range(vault.amount)?;
 
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive);
@@ -351,16 +369,14 @@ impl DisciplrVault {
         token_client.transfer(
             &env.current_contract_address(),
             &vault.failure_destination,
-            &vault.amount,
+            &amount,
         );
 
         vault.status = VaultStatus::Failed;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_redirected"), vault_id),
-            vault.amount,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "funds_redirected"), vault_id), amount);
         Ok(true)
     }
 
@@ -376,6 +392,7 @@ impl DisciplrVault {
             .instance()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
+        let amount = ensure_amount_in_range(vault.amount)?;
 
         vault.creator.require_auth();
 
@@ -386,11 +403,7 @@ impl DisciplrVault {
         let _canonical_token = Self::get_token_address(&env, &usdc_token)?;
 
         let token_client = token::Client::new(&env, &usdc_token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &vault.creator,
-            &vault.amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &vault.creator, &amount);
 
         vault.status = VaultStatus::Cancelled;
         env.storage().instance().set(&vault_key, &vault);
@@ -538,6 +551,21 @@ mod tests {
                 &self.failure_dest,
             )
         }
+
+        fn malformed_vault(&self, amount: i128) -> ProductivityVault {
+            ProductivityVault {
+                creator: self.creator.clone(),
+                amount,
+                start_timestamp: self.start_timestamp,
+                end_timestamp: self.end_timestamp,
+                milestone_hash: self.milestone_hash(),
+                verifier: Some(self.verifier.clone()),
+                success_destination: self.success_dest.clone(),
+                failure_destination: self.failure_dest.clone(),
+                status: VaultStatus::Active,
+                milestone_validated: false,
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -672,6 +700,53 @@ mod tests {
             result.is_err(),
             "create_vault with start >= end should return InvalidTimestamps"
         );
+    }
+
+    #[test]
+    fn test_create_vault_accepts_max_u64_end_timestamp_when_duration_is_safe() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let start_timestamp = u64::MAX - MAX_VAULT_DURATION;
+        let end_timestamp = u64::MAX;
+        let usdc_asset = StellarAssetClient::new(&setup.env, &setup.usdc_token);
+        usdc_asset.mint(&setup.creator, &setup.amount);
+
+        let vault_id = client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &start_timestamp,
+            &end_timestamp,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.start_timestamp, start_timestamp);
+        assert_eq!(vault.end_timestamp, end_timestamp);
+    }
+
+    #[test]
+    fn test_create_vault_rejects_max_u64_end_timestamp_when_duration_exceeds_limit() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        let result = client.try_create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &(u64::MAX - MAX_VAULT_DURATION - 1),
+            &u64::MAX,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1025,6 +1100,59 @@ mod tests {
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_release_funds_rejects_malformed_stored_amount() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+        setup.env.as_contract(&setup.contract_id, || {
+            setup
+                .env
+                .storage()
+                .instance()
+                .set(&DataKey::Vault(77), &setup.malformed_vault(MAX_AMOUNT + 1));
+        });
+
+        let result = client.try_release_funds(&77, &setup.usdc_token);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_redirect_funds_rejects_malformed_stored_amount() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+        setup.env.as_contract(&setup.contract_id, || {
+            setup
+                .env
+                .storage()
+                .instance()
+                .set(&DataKey::Vault(78), &setup.malformed_vault(MAX_AMOUNT + 1));
+        });
+
+        let result = client.try_redirect_funds(&78, &setup.usdc_token);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cancel_vault_rejects_malformed_stored_amount() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.as_contract(&setup.contract_id, || {
+            setup
+                .env
+                .storage()
+                .instance()
+                .set(&DataKey::Vault(79), &setup.malformed_vault(MIN_AMOUNT - 1));
+        });
+
+        let result = client.try_cancel_vault(&79, &setup.usdc_token);
+        assert!(result.is_err());
     }
 
     // -----------------------------------------------------------------------

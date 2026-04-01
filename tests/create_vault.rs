@@ -127,6 +127,71 @@ fn test_duration_exceeds_max() {
 }
 
 #[test]
+fn test_duration_checked_sub_handles_u64_max_end_timestamp() {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let start = u64::MAX - MAX_VAULT_DURATION;
+    let end = u64::MAX;
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &start,
+        &end,
+        &BytesN::from_array(&env, &[2u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    assert_eq!(vault_id, 0u32);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_duration_checked_sub_rejects_u64_max_end_timestamp_over_limit() {
+    let (env, client, usdc, _usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &(u64::MAX - MAX_VAULT_DURATION - 1),
+        &u64::MAX,
+        &BytesN::from_array(&env, &[3u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_amount_i128_max_rejected_explicitly() {
+    let (env, client, usdc, _usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+
+    client.create_vault(
+        &usdc,
+        &creator,
+        &i128::MAX,
+        &0u64,
+        &1u64,
+        &BytesN::from_array(&env, &[4u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #4)")]
 fn test_start_timestamp_in_past() {
     let (env, client, usdc, _usdc_asset) = setup();

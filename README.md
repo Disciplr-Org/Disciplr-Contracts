@@ -23,7 +23,7 @@ Single contract **disciplr-vault** with:
 The `create_vault` function now includes full USDC token transfer functionality:
 
 - Transfers specified USDC amount from creator to contract
-- Validates all inputs (amount > 0, valid timestamps)
+- Validates all inputs (bounded token amount, checked duration arithmetic, valid timestamps)
 - Requires creator authorization
 - Handles insufficient balance errors
 - **Test coverage: 100% of create_vault logic**
@@ -38,6 +38,10 @@ For detailed contract documentation, see [vesting.md](vesting.md).
 ## Security
 
 The Disciplr Vault follows a transparent security model based on creator authorization and optional third-party verification. For a detailed analysis of the trust model, assumptions, and known limitations (including CEI pattern notes), please refer to the [Security and Trust Model](vesting.md#security-and-trust-model) in the documentation.
+
+Overflow hardening:
+- Vault creation uses explicit checked subtraction for `end_timestamp - start_timestamp`, including `u64::MAX` boundary cases.
+- Every token transfer path re-validates the stored `amount` before calling the token contract, so malformed or out-of-range values are rejected before any transfer attempt.
 
 ---
 
@@ -146,7 +150,9 @@ pub fn create_vault(
 
 **Requirements:**
 - Caller must authorize the transaction (`creator.require_auth()`)
+- `amount` must satisfy `MIN_AMOUNT <= amount <= MAX_AMOUNT`
 - `end_timestamp` must be greater than `start_timestamp`
+- `end_timestamp - start_timestamp` is checked explicitly and must be `<= MAX_VAULT_DURATION`
 - USDC transfer must be approved by creator before calling
 
 **Emits:** `vault_created` event
