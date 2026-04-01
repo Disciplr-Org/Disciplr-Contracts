@@ -8,11 +8,47 @@ output-dir = "coverage"
 all-features = true
 workspace = true
 
+<<<<<<< feature/distinct-destinations
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+//
+// Contract-specific errors used in revert paths. Follows Soroban error
+// conventions: use Result<T, Error> and return Err(Error::Variant) instead
+// of generic panics where appropriate.
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    /// Vault with the given id does not exist.
+    VaultNotFound = 1,
+    /// Caller is not authorized for this operation (e.g. not verifier/creator, or release before deadline without validation).
+    NotAuthorized = 2,
+    /// Vault is not in Active status (e.g. already Completed, Failed, or Cancelled).
+    VaultNotActive = 3,
+    /// Timestamp constraint violated (e.g. redirect before end_timestamp, or invalid time window).
+    InvalidTimestamp = 4,
+    /// Validation is no longer allowed because current time is at or past end_timestamp.
+    MilestoneExpired = 5,
+    /// Vault is in an invalid status for the requested operation.
+    InvalidStatus = 6,
+    /// Amount must be positive (e.g. create_vault amount <= 0).
+    InvalidAmount = 7,
+    /// start_timestamp must be strictly less than end_timestamp.
+    InvalidTimestamps = 8,
+    /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
+    DurationTooLong = 9,
+    /// success_destination and failure_destination must be different addresses.
+    SameDestination = 10,
+}
+=======
 # Exclude test code from coverage
 exclude-files = []
 
 # Count branches for more accurate coverage
 count-branches = true
+>>>>>>> main
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -84,10 +120,20 @@ pub struct DisciplrVault;
 impl DisciplrVault {
     /// Create a new productivity vault.
     ///
+<<<<<<< feature/distinct-destinations
+    /// # Validation Rules
+    /// - `amount` must be within `[MIN_AMOUNT, MAX_AMOUNT]`; otherwise returns `Error::InvalidAmount`.
+    /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - `end_timestamp - start_timestamp` must not exceed `MAX_VAULT_DURATION`; otherwise returns `Error::DurationTooLong`.
+    /// - `success_destination` must differ from `failure_destination`; otherwise returns `Error::SameDestination`.
+    ///   Allowing equal destinations would make the success/failure outcome indistinguishable to the
+    ///   creator, removing the accountability incentive that is the core purpose of the vault.
+=======
     /// This function follows the **Checks-Effects-Interactions** pattern:
     /// 1. **Checks**: Validates `amount`, `start_timestamp`, `end_timestamp`, and `creator` authorization.
     /// 2. **Interactions**: Transfers USDC from `creator` to the contract.
     /// 3. **Effects**: Increments `VaultCount`, creates the `ProductivityVault` record, and emits `vault_created`.
+>>>>>>> main
     ///
     /// # Errors
     /// - `Error::InvalidAmount`: if amount is not within [MIN_AMOUNT, MAX_AMOUNT].
@@ -129,6 +175,11 @@ impl DisciplrVault {
         let duration = end_timestamp - start_timestamp;
         if duration > MAX_VAULT_DURATION {
             return Err(Error::DurationTooLong);
+        }
+
+        // Validate destinations are distinct
+        if success_destination == failure_destination {
+            return Err(Error::SameDestination);
         }
 
         // Pull USDC from creator into this contract.
