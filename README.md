@@ -347,6 +347,41 @@ Emitted when a milestone is successfully validated.
 
 2. **Non-Custodial**: The contract holds tokens in escrow but never has withdrawal authority beyond the defined destination addresses.
 
+### Reentrancy and Token Callback Assumptions
+
+The Disciplr Vault contract is protected against reentrancy attacks through the following mechanisms:
+
+#### Soroban Token Transfer Atomicity
+
+The Soroban token `transfer` operation is **atomic** — it completes entirely within a single contract invocation without invoking callbacks to the calling contract. Specifically:
+
+- When `token_client.transfer(&from, &to, &amount)` is called, the token contract executes the transfer internally and returns immediately
+- There is **no callback mechanism** that would allow the token contract to re-invoke the Disciplr Vault contract during a transfer
+- This means there are no reentrancy vectors via malicious token contracts in standard Soroban token implementations
+
+#### Custom Token Restrictions
+
+For deployments using the standard Soroban token interface (including Stellar Asset Contracts and standard ERC-20-like tokens deployed on Soroban):
+
+- **No custom token callbacks**: The contract assumes the token being used does not implement callback hooks to the caller
+- **Assumption**: Custom tokens that implement reentrant callbacks are not supported in standard deployments
+- **Mitigation**: If custom tokens are allowed, additional guards (e.g., reentrancy locks) should be implemented
+
+#### Deployment-Specific Assumptions
+
+This documentation assumes:
+
+1. **Standard Stellar Asset Contract (SAC)**: When using Stellar's native USDC or other Stellar Asset Contracts, the token interface provides no callback mechanism
+2. **No custom token allowlist**: The contract currently does not enforce an allowlist of permitted token contracts
+3. **Trust in token contract**: Users must trust that the token contract behaves according to its documented interface
+
+#### Security Note
+
+If the deployment environment allows arbitrary token contracts, additional security measures should be considered:
+- Implement a reentrancy guard (e.g., `nonreentrant` modifier or explicit state checks before/after external calls)
+- Maintain an allowlist of verified token contract addresses
+- Document the trust assumptions clearly for integrators
+
 ### Current Limitations (TODOs)
 
 The following security features are not yet implemented:
