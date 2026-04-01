@@ -43,12 +43,12 @@ The main data structure representing a vault:
 ```rust
 #[contracttype]
 pub struct ProductivityVault {
-    pub creator: Address,             // Address that created the vault
-    pub amount: i128,                 // Amount of USDC locked (in stroops)
-    pub start_timestamp: u64,         // Unix timestamp when vault becomes active
-    pub end_timestamp: u64,           // Unix deadline for milestone validation
-    pub milestone_hash: BytesN<32>,   // SHA-256 hash of milestone requirements
-    pub verifier: Option<Address>,    // Optional trusted verifier address
+    pub creator: Address,           // Address that created the vault
+    pub amount: i128,                // Amount of USDC locked (in stroops)
+    pub start_timestamp: u64,       // Unix timestamp when vault becomes active
+    pub end_timestamp: u64,          // Unix deadline for milestone validation
+    pub milestone_hash: BytesN<32>, // Commitment metadata for milestone requirements
+    pub verifier: Option<Address>,  // Optional trusted verifier address
     pub success_destination: Address, // Address for fund release on success
     pub failure_destination: Address, // Address for fund redirect on failure
     pub status: VaultStatus,          // Current lifecycle status
@@ -62,8 +62,8 @@ pub struct ProductivityVault {
 | `amount` | `i128` | Total USDC amount locked (in stroops, 1 USDC = 10^7 stroops) |
 | `start_timestamp` | `u64` | Unix timestamp (seconds) when vault becomes active |
 | `end_timestamp` | `u64` | Unix timestamp (seconds) deadline for milestone validation |
-| `milestone_hash` | `BytesN<32>` | SHA-256 hash documenting milestone requirements |
-| `verifier` | `Option<Address>` | Optional trusted party who can validate milestones. When `None`, only the creator may validate. |
+| `milestone_hash` | `BytesN<32>` | Commitment metadata for an off-chain milestone description |
+| `verifier` | `Option<Address>` | Optional trusted party who can validate milestones |
 | `success_destination` | `Address` | Recipient address on successful milestone completion |
 | `failure_destination` | `Address` | Recipient address when milestone is not completed |
 | `status` | `VaultStatus` | Current lifecycle state of the vault |
@@ -95,11 +95,11 @@ pub fn create_vault(
 **Parameters:**
 - `usdc_token`: Address of the USDC token contract used for the transfer
 - `creator`: Address of the vault creator (must authorize transaction)
-- `amount`: USDC amount to lock (in stroops, min 1 USDC / max 10M USDC)
-- `start_timestamp`: When vault becomes active (unix seconds, must not be in the past)
-- `end_timestamp`: Deadline for milestone validation (unix seconds, must be > `start_timestamp`)
-- `milestone_hash`: SHA-256 hash of milestone document
-- `verifier`: Optional verifier address. When `None`, only the creator may validate.
+- `amount`: USDC amount to lock (in stroops)
+- `start_timestamp`: When vault becomes active (unix seconds)
+- `end_timestamp`: Deadline for milestone validation (unix seconds)
+- `milestone_hash`: commitment metadata for the off-chain milestone document
+- `verifier`: Optional verifier address (None = anyone can validate)
 - `success_destination`: Address to receive funds on success
 - `failure_destination`: Address to receive funds on failure
 
@@ -116,20 +116,27 @@ pub fn create_vault(
 
 ### `validate_milestone`
 
-Allows the verifier (or authorized party) to validate milestone completion and release funds.
+Allows the verifier (or authorized party) to validate milestone completion.
 
 ```rust
-pub fn validate_milestone(env: Env, vault_id: u32) -> bool
+pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to validate
 
-**Returns:** `bool` - True if validation successful
+**Returns:** `Result<bool, Error>` - `Ok(true)` if validation successful
 
-**Requirements (TODO):**
+**Errors:**
+- `Error::VaultNotFound` - Vault with given ID does not exist
+- `Error::VaultNotActive` - Vault is not in `Active` status
+- `Error::AlreadyValidated` - Milestone has already been validated for this vault
+- `Error::MilestoneExpired` - Current timestamp is at or past `end_timestamp`
+
+**Requirements:**
 - Vault must exist and be in `Active` status
-- Caller must be the designated verifier (if set)
+- Milestone must not have been previously validated
+- Caller must be the designated verifier (if set) or creator (if no verifier)
 - Current timestamp must be before `end_timestamp`
 
 **Emits:** [`milestone_validated`](#milestone_validated) event
@@ -261,6 +268,113 @@ Emitted when a milestone is successfully validated.
 
 ---
 
+## API Payload Mapping for Backend Integration
+
+This section maps contract methods to REST API payloads for backend integration. See [`src/doc.md`](./src/doc.md) for complete backend integration guide.
+
+### REST API Endpoints
+
+| Contract Method | HTTP Method | API Endpoint |
+|----------------|-------------|--------------|
+| `create_vault` | POST | `/api/v1/vaults` |
+| `validate_milestone` | POST | `/api/v1/vaults/{vault_id}/validate` |
+| `release_funds` | POST | `/api/v1/vaults/{vault_id}/release` |
+| `redirect_funds` | POST | `/api/v1/vaults/{vault_id}/redirect` |
+| `cancel_vault` | POST | `/api/v1/vaults/{vault_id}/cancel` |
+| `get_vault_state` | GET | `/api/v1/vaults/{vault_id}` |
+| `vault_count` | GET | `/api/v1/vaults/count` |
+
+### Create Vault API Payload
+
+**Request:**
+```json
+{
+  "usdc_token": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+  "creator": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "amount": "1000000000",
+  "start_timestamp": 1704067200,
+  "end_timestamp": 1706640000,
+  "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
+  "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "failure_destination": "GD7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+}
+```
+
+**Response:**
+```json
+{
+  "vault_id": 42,
+  "status": "Active",
+  "transaction_hash": "db7e7f0e81dcde2f38b7c8d7b9c5c3a2b1d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8",
+  "ledger_sequence": 12345678,
+  "created_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Validate Milestone API Payload
+
+**Request:**
+```json
+{
+  "vault_id": 42,
+  "verifier_signature": "signature_data_here"
+}
+```
+
+**Response:**
+```json
+{
+  "vault_id": 42,
+  "milestone_validated": true,
+  "transaction_hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+  "ledger_sequence": 12345680,
+  "validated_at": "2024-01-15T12:30:00Z"
+}
+```
+
+### Release Funds API Payload
+
+**Request:**
+```json
+{
+  "vault_id": 42,
+  "usdc_token": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+  "caller_signature": "signature_data_here"
+}
+```
+
+**Response:**
+```json
+{
+  "vault_id": 42,
+  "status": "Completed",
+  "amount_released": "1000000000",
+  "destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "transaction_hash": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3",
+  "ledger_sequence": 12345682,
+  "released_at": "2024-01-20T00:00:00Z"
+}
+```
+
+### Error Response Format
+
+```json
+{
+  "error": {
+    "code": "VAULT_NOT_FOUND",
+    "message": "Vault with ID 42 does not exist",
+    "contract_error": "VaultNotFound",
+    "contract_error_code": 1,
+    "details": {
+      "vault_id": 42
+    }
+  }
+}
+```
+
+---
+
 ## Lifecycle
 
 ```
@@ -309,16 +423,43 @@ This section outlines the security assumptions, trust model, and known limitatio
 
 ### Trust Model
 
-1. **Verifier Trust (Critical)**: When a `verifier` is designated (via `Some(Address)`), that address has absolute power to validate the milestone and cause funds to be released to the `success_destination` before the deadline. If the verifier is compromised or malicious, they can release funds prematurely.
-2. **Creator Power**: If no `verifier` is set (`None`), only the `creator` can validate the milestone. The `creator` can also cancel the vault at any time to reclaim funds while the vault is still `Active`.
-3. **No Administrative Overrides**: There is no admin or owner role with the power to sweep funds or override vault logic. Funds can only flow to the predefined `success_destination`, `failure_destination`, or back to the `creator` on cancellation.
-4. **Immutable Destinations**: Once a vault is created, the `success_destination` and `failure_destination` are immutable.
+1. **Verifier Trust (Critical)**: When a `verifier` is designated (via `Some(Address)`), that address has **absolute power** to validate the milestone and cause funds to be released to the `success_destination` before the deadline. If the verifier is compromised or malicious, they can release funds prematurely or to a non-compliant recipient.
+2. **Creator Power**: If no `verifier` is set (`None`), only the `creator` can validate the milestone. Additionally, the `creator` can cancel the vault at any time to reclaim funds, assuming the vault is still `Active`. 
+3. **Immutable Destinations**: Once a vault is created, the `success_destination` and `failure_destination` are immutable. This prevents redirection of funds after the vault is funded, assuming the core contract logic remains secure.
 
 ### Security Assumptions
 
-1. **Stellar Ledger Integrity**: The Stellar blockchain and Soroban runtime correctly enforce authorization (`require_auth`) and maintain state integrity.
-2. **Ledger Timestamp**: The contract relies on `env.ledger().timestamp()` for all time-based logic. Timestamps are assumed to be accurate and monotonic per Stellar network consensus.
-3. **Token Contract Behavior**: The USDC token contract is assumed to be honest and follow the standard Soroban token interface.
+1. **Stellar Ledger Integrity**: We assume the underlying Stellar blockchain and Soroban runtime correctly enforce authorization (`require_auth`) and maintain state integrity.
+2. **Ledger Timestamp**: The contract relies on `env.ledger().timestamp()` for all time-based logic (start/end windows). We assume ledger timestamps are reasonably accurate and monotonic as per Stellar network consensus.
+3. **Token Contract Behavior**: The contract interacts with a USDC token contract (standard Soroban token interface). We assume the token contract is honest and follows the expected transfer behavior.
+
+### Reentrancy and Token Callback Assumptions
+
+The Disciplr Vault contract is protected against reentrancy attacks through the following mechanisms:
+
+#### Soroban Token Transfer Atomicity
+
+The Soroban token `transfer` operation is **atomic** — it completes entirely within a single contract invocation without invoking callbacks to the calling contract. Specifically:
+
+- When `token_client.transfer(&from, &to, &amount)` is called, the token contract executes the transfer internally and returns immediately
+- There is **no callback mechanism** that would allow the token contract to re-invoke the Disciplr Vault contract during a transfer
+- This means there are no reentrancy vectors via malicious token contracts in standard Soroban token implementations
+
+#### Custom Token Restrictions
+
+For deployments using the standard Soroban token interface (including Stellar Asset Contracts and standard ERC-20-like tokens deployed on Soroban):
+
+- **No custom token callbacks**: The contract assumes the token being used does not implement callback hooks to the caller
+- **Assumption**: Custom tokens that implement reentrant callbacks are not supported in standard deployments
+- **Mitigation**: If custom tokens are allowed, additional guards (e.g., reentrancy locks) should be implemented
+
+#### Deployment-Specific Assumptions
+
+This documentation assumes:
+
+1. **Standard Stellar Asset Contract (SAC)**: When using Stellar's native USDC or other Stellar Asset Contracts, the token interface provides no callback mechanism
+2. **No custom token allowlist**: The contract currently does not enforce an allowlist of permitted token contracts
+3. **Trust in token contract**: Users must trust that the token contract behaves according to its documented interface
 
 ### Known Limitations & Risks
 
@@ -329,10 +470,9 @@ This section outlines the security assumptions, trust model, and known limitatio
 
 ### Recommendations for Integration
 
-- **Off-chain Verification**: The `milestone_hash` should represent a clear, binding document agreed upon by both creator and verifier before vault creation.
-- **Multisig Verifiers**: For high-value vaults, use a multisig address as the `verifier`.
-- **External Audits**: Have security experts review before mainnet deployment.
-
+- **Commitment Metadata Only**: The `milestone_hash` is stored as opaque bytes for off-chain correlation only. Contract authorization, state transitions, and fund safety do not rely on hash-function collision resistance or post-quantum properties.
+- **Off-chain Verification**: The `milestone_hash` should represent a clear, legally or technically binding document that both creator and verifier agree upon.
+- **Multisig Verifiers**: For high-value vaults, we highly recommend using a multisig address (G-address or contract-based account) as the `verifier`.
 
 ---
 
