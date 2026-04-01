@@ -951,6 +951,11 @@ During `create_vault`, the contract enforces:
 - `end_timestamp` must be strictly greater than `start_timestamp`
 - `end_timestamp - start_timestamp` must not exceed `MAX_VAULT_DURATION`
 - `success_destination` must differ from `failure_destination` (returns `Error::SameDestination`, code `#10`); equal destinations make the success/failure outcome financially indistinguishable, removing the accountability incentive of the vault
+<<<<<<< feature/address-validation
+- `creator` must differ from `success_destination` and `failure_destination` (returns `Error::InvalidAddress`, code `#11`); a creator that is also a destination could trivially recover funds regardless of milestone outcome
+- `verifier` (when `Some`) must differ from `creator` (returns `Error::InvalidAddress`, code `#11`); a verifier equal to the creator provides no independent validation
+=======
+>>>>>>> main
 
 All validations occur before event emission or state mutation, ensuring invalid vaults cannot be created.
 
