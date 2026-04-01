@@ -16,6 +16,31 @@ cargo test test_active_to_completed_via_release
 cargo tarpaulin --out Html --out Stdout
 ```
 
+## Property Tests for Timestamp Ordering (Issue #136)
+
+New file: `tests/proptest_timestamps.rs`
+
+What is validated:
+
+- Valid ordering property: `start < end` succeeds for randomized inputs.
+- Invalid ordering property: `start >= end` rejects with `Error::InvalidTimestamps`.
+- Duration bound property: `(end - start) > MAX_VAULT_DURATION` rejects with `Error::DurationTooLong`.
+
+Strategy design (controlled randomness):
+
+- Valid cases use `(start_offset, duration)` with:
+  - `start = now + start_offset`
+  - `duration in 1..=MAX_VAULT_DURATION`
+  - `end = start + duration`
+- Invalid ordering uses `end = start.saturating_sub(backoff)` to guarantee `end <= start`.
+- Overflow risk is avoided by bounded ranges for `start_offset` and `duration`.
+
+Explicit edge vectors included:
+
+- `start == end` (reject)
+- `start = 0`, `end = 1` with ledger time at `0` (accept)
+- `duration == MAX_VAULT_DURATION` (accept)
+
 ## Test Coverage: 95%+ Achieved ✅
 
 - **32 comprehensive tests** - All passing

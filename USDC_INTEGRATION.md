@@ -1,12 +1,22 @@
-# USDC Token Integration Documentation
+# USDC Integration and Trust Model
+
+This document describes both:
+
+- The current USDC token integration used by the Disciplr vault contract.
+- The external trust assumptions that still apply when production USDC is used on Stellar.
 
 ## Overview
 
-This document describes the USDC token transfer integration implemented in the `create_vault` function of the DisciplrVault smart contract.
+`create_vault` currently transfers USDC from the creator into the vault contract using the Soroban token interface. That means Disciplr now depends on two layers of security:
 
-## Implementation Details
+- The local contract logic in this repository.
+- The issuer/admin controls and operational policies of the external USDC asset.
 
-### Function Signature
+Disciplr can enforce escrow workflow rules, but it cannot remove powers held by the underlying USDC issuer or asset administrator.
+
+## Current On-Chain Integration
+
+### Function signature
 
 ```rust
 pub fn create_vault(
@@ -23,151 +33,90 @@ pub fn create_vault(
 ) -> Result<u32, Error>
 ```
 
-### Token Transfer Mechanism
+### Token transfer mechanism
 
-The contract uses the Soroban token interface to transfer USDC from the creator to the contract:
+The contract pulls USDC into escrow during vault creation:
 
 ```rust
-let contract_address = env.current_contract_address();
 let token_client = token::Client::new(&env, &usdc_token);
-token_client.transfer(&creator, &contract_address, &amount);
+token_client.transfer(&creator, &env.current_contract_address(), &amount);
 ```
 
-**Key Points:**
-- Uses `transfer()` instead of `transfer_from()` for simpler authorization flow
-- Creator must authorize the transaction (enforced by `creator.require_auth()`)
-- Transfer happens atomically - if it fails, the entire transaction reverts
-- Contract becomes the custodian of the locked USDC
+Properties:
 
-### Input Validation
+- The creator must authorize the call.
+- The transfer and vault creation happen atomically.
+- If the transfer fails, the vault is not created.
 
-The function validates inputs before attempting the transfer:
+## Core Trust Assumptions
 
-1. **Amount validation**: Must be positive (> 0)
-2. **Timestamp validation**: `end_timestamp` must be after `start_timestamp`
-3. **Authorization**: Creator must authorize the transaction
+### 1. Disciplr does not control USDC monetary policy
 
-### Error Handling
+Disciplr is an application-layer escrow workflow. It does not mint, redeem, freeze, claw back, pause, or upgrade the USDC asset. Those powers remain with the issuer and any admin-capable roles defined by the production asset.
 
-The function will panic (revert) in the following cases:
+Implications:
 
-| Condition | Error Variant |
-|-----------|---------------|
-| Amount < MIN_AMOUNT | `Error::InvalidAmount` |
-| Amount > MAX_AMOUNT | `Error::InvalidAmount` |
-| end_timestamp ≤ start_timestamp | `Error::InvalidTimestamps` |
-| duration > MAX_VAULT_DURATION | `Error::DurationTooLong` |
-| start_timestamp < current_time | `Error::InvalidTimestamp` |
-| Insufficient balance | (from token contract) |
-| Missing authorization | Authorization error from Soroban SDK |
+- A correct Disciplr contract cannot remove issuer-level powers from the underlying asset.
+- Users still inherit the operational, governance, and compliance risk of the integrated USDC asset.
 
-## Security Considerations
+### 2. Issuer and admin powers may override escrow expectations
 
-### ✅ Implemented Security Features
+On Stellar, asset-level controls may affect transferability depending on the asset configuration and issuer policy.
 
-1. **Authorization Required**: Creator must explicitly authorize the transaction
-2. **Input Validation**: All inputs are validated before token transfer
-3. **Atomic Operations**: Transfer and vault creation happen atomically
-4. **No Reentrancy Risk**: Uses Soroban's built-in token interface
-5. **Type Safety**: Rust's type system prevents many common vulnerabilities
+Implications:
 
-### ⚠️ Important Notes
+- A vault reaching `Completed`, `Failed`, or `Cancelled` does not guarantee settlement if the asset itself is frozen, paused, blacklisted, or otherwise restricted.
+- Incident response must treat issuer-side actions as a separate failure domain from Disciplr contract bugs.
 
-1. **Token Address Trust**: The contract trusts the provided `usdc_token` address. In production, consider:
-   - Hardcoding the official USDC token address
-   - Implementing a whitelist of approved token contracts
-   - Adding admin functions to manage approved tokens
+### 3. Asset migrations and admin-key changes are security events
 
-2. **Full Lifecycle Implemented**: Funds can be released, redirected, or cancelled using the respective functions, all of which are fully implemented and tested.
+If production USDC is migrated to a new issuer, a new Stellar Asset Contract, or a new operational policy, the integration assumptions here must be re-reviewed before new vaults are created.
 
-3. **Vault ID Management**: Uses an incremental counter stored in instance storage (`DataKey::VaultCount`) to assign unique IDs.
+Implications:
 
-## Testing
+- Treat issuer rotations, admin-key rotations, and asset-address changes as release-blocking events.
+- Re-validate the exact asset identifier and admin model before deployment and after any issuer-announced migration.
 
-### Test Coverage
+## Deployment Checks
 
-The implementation includes comprehensive tests covering:
+Before using production USDC, operators should confirm:
 
-1. ✅ **Successful vault creation** - Happy path with sufficient balance
-2. ✅ **Zero amount rejection** - Validates amount > 0
-3. ✅ **Negative amount rejection** - Validates amount > 0
-4. ✅ **Invalid timestamps** - Validates end > start
-5. ✅ **Equal timestamps** - Validates end > start (not equal)
-6. ✅ **Insufficient balance** - Token contract rejects transfer
-7. ✅ **With optional verifier** - Tests optional parameter handling
-8. ✅ **Exact balance** - Tests edge case of transferring entire balance
+1. The exact Stellar asset or Stellar Asset Contract address being integrated.
+2. The issuer account and any admin-capable roles attached to that asset.
+3. Whether the asset can be frozen, clawed back, blacklisted, paused, or migrated.
+4. Whether issuer compliance or redemption workflows can delay settlement.
+5. Whether the token address passed to contract calls matches the intended production asset.
 
-### Running Tests
+## Contract-Level Guarantees
 
-```bash
-cargo test
-```
+The contract can currently guarantee only local properties such as:
 
-All 8 tests pass successfully:
+- creator authorization
+- amount and timestamp validation
+- vault state persistence
+- milestone validation timing rules
+- status-transition checks for release, redirect, and cancel flows
 
-```
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-```
+The contract cannot guarantee:
 
-### Test Coverage Metrics
+- that the USDC asset remains transferable
+- that issuer/admin policies remain unchanged after deployment
+- that off-chain redemption or compliance workflows settle instantly
 
-- **Lines covered**: ~95%+
-- **Edge cases**: All major edge cases tested
-- **Error paths**: All validation errors tested
-- **Success paths**: Multiple success scenarios tested
+## Security Notes for Auditors
 
-## Deployment
+- The `usdc_token` address is supplied at call time and is not pinned inside vault state.
+- The integrated token contract is therefore part of the effective security boundary.
+- Production review should include both the Disciplr contract and the chosen Stellar USDC asset configuration.
 
-### Building for Production
+## Related Documentation
 
-```bash
-cargo build --target wasm32-unknown-unknown --release
-```
+- [README.md](README.md)
+- [vesting.md](vesting.md)
+- [src/lib.rs](src/lib.rs)
 
-Output: `target/wasm32-unknown-unknown/release/disciplr_vault.wasm` (4.2KB)
+## Primary References
 
-### Deployment Checklist
-
-Before deploying to mainnet:
-
-- [ ] Review and potentially hardcode USDC token address
-- [ ] Implement vault storage and ID management
-- [ ] Implement release_funds, redirect_funds, cancel_vault functions
-- [ ] Add admin controls if needed
-- [ ] Conduct external security audit
-- [ ] Test on testnet with real USDC token
-- [ ] Verify gas costs and optimize if needed
-
-## Usage Example
-
-```rust
-// In a client application
-let vault_client = DisciplrVaultClient::new(&env, &vault_contract_address);
-
-let vault_id = vault_client.create_vault(
-    &usdc_token_address,           // Official USDC token on Stellar
-    &creator_address,               // Your address
-    &1_000_000,                     // 1 USDC (6 decimals)
-    &start_time,                    // Unix timestamp
-    &end_time,                      // Unix timestamp
-    &milestone_hash,                // SHA-256 hash of milestone
-    &Some(verifier_address),        // Optional verifier
-    &success_destination_address,   // Where funds go on success
-    &failure_destination_address,   // Where funds go on failure
-);
-```
-
-## Future Enhancements
-
-1. **Persistent Storage**: Implement vault storage using Soroban's storage API
-2. **Vault ID Management**: Implement counter-based or hash-based ID generation
-3. **Multi-token Support**: Support tokens other than USDC
-4. **Batch Operations**: Allow creating multiple vaults in one transaction
-5. **Events**: Emit more detailed events for off-chain indexing
-6. **Upgradability**: Consider implementing upgrade patterns
-
-## References
-
-- [Soroban Token Interface](https://developers.stellar.org/docs/tokens/token-interface)
-- [Soroban SDK Documentation](https://docs.rs/soroban-sdk/)
-- [Stellar USDC](https://stellar.org/usdc)
+- Stellar Docs: https://developers.stellar.org/docs/tokens/how-to-issue-an-asset
+- Soroban token interface: https://developers.stellar.org/docs/tokens/token-interface
+- Circle USDC risk factors: https://www.circle.com/legal/usdc-risk-factors
