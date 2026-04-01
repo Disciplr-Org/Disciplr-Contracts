@@ -1191,6 +1191,69 @@ mod tests {
             .is_err());
     }
 
+    // -----------------------------------------------------------------------
+    // Issue #118: redirect_funds must be blocked when milestone_validated = true
+    // -----------------------------------------------------------------------
+
+    /// After validation, redirect_funds must fail even if the deadline has NOT yet passed.
+    #[test]
+    fn test_redirect_funds_after_validation_before_deadline_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Validate milestone before deadline.
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+        client.validate_milestone(&vault_id);
+
+        // Deadline has NOT passed — redirect must be rejected (NotAuthorized).
+        let result = client.try_redirect_funds(&vault_id, &setup.usdc_token);
+        assert!(
+            result.is_err(),
+            "redirect_funds must fail when milestone is validated and deadline not reached"
+        );
+    }
+
+    /// After validation, redirect_funds must fail even AFTER the deadline has passed.
+    /// Funds must go to success_destination via release_funds, not failure_destination.
+    #[test]
+    fn test_redirect_funds_after_validation_after_deadline_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // Validate milestone before deadline.
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+        client.validate_milestone(&vault_id);
+
+        // Advance past deadline.
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        // Redirect must still be rejected because milestone was validated.
+        let result = client.try_redirect_funds(&vault_id, &setup.usdc_token);
+        assert!(
+            result.is_err(),
+            "redirect_funds must fail when milestone is validated, even after deadline"
+        );
+
+        // Confirm failure_destination received nothing.
+        let usdc = setup.usdc_client();
+        assert_eq!(
+            usdc.balance(&setup.failure_dest),
+            0,
+            "failure_destination must not receive funds when milestone was validated"
+        );
+
+        // release_funds should still succeed (validated path).
+        let released = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(released);
+        assert_eq!(usdc.balance(&setup.success_dest), setup.amount);
+    }
+
     #[test]
     fn test_double_redirect_rejected() {
         let setup = TestSetup::new();
