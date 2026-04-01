@@ -1,10 +1,14 @@
-#![no_std]
-#![allow(clippy::too_many_arguments)]
+[report]
+# Tarpaulin configuration for accurate coverage reporting
+out = ["Html", "Lcov", "Stdout"]
+output-dir = "coverage"
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
-};
+[run]
+# Run all tests
+all-features = true
+workspace = true
 
+<<<<<<< feature/distinct-destinations
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -38,6 +42,13 @@ pub enum Error {
     /// success_destination and failure_destination must be different addresses.
     SameDestination = 10,
 }
+=======
+# Exclude test code from coverage
+exclude-files = []
+
+# Count branches for more accurate coverage
+count-branches = true
+>>>>>>> main
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -107,8 +118,9 @@ pub struct DisciplrVault;
 
 #[contractimpl]
 impl DisciplrVault {
-    /// Create a new productivity vault. Transfers USDC from creator to contract.
+    /// Create a new productivity vault.
     ///
+<<<<<<< feature/distinct-destinations
     /// # Validation Rules
     /// - `amount` must be within `[MIN_AMOUNT, MAX_AMOUNT]`; otherwise returns `Error::InvalidAmount`.
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
@@ -116,9 +128,18 @@ impl DisciplrVault {
     /// - `success_destination` must differ from `failure_destination`; otherwise returns `Error::SameDestination`.
     ///   Allowing equal destinations would make the success/failure outcome indistinguishable to the
     ///   creator, removing the accountability incentive that is the core purpose of the vault.
+=======
+    /// This function follows the **Checks-Effects-Interactions** pattern:
+    /// 1. **Checks**: Validates `amount`, `start_timestamp`, `end_timestamp`, and `creator` authorization.
+    /// 2. **Interactions**: Transfers USDC from `creator` to the contract.
+    /// 3. **Effects**: Increments `VaultCount`, creates the `ProductivityVault` record, and emits `vault_created`.
+>>>>>>> main
     ///
-    /// # Prerequisites
-    /// Creator must have sufficient USDC balance and authorize the transaction.
+    /// # Errors
+    /// - `Error::InvalidAmount`: if amount is not within [MIN_AMOUNT, MAX_AMOUNT].
+    /// - `Error::InvalidTimestamp`: if `start_timestamp` is in the past.
+    /// - `Error::InvalidTimestamps`: if `end_timestamp <= start_timestamp`.
+    /// - `Error::DurationTooLong`: if the vault window exceeds `MAX_VAULT_DURATION`.
     pub fn create_vault(
         env: Env,
         usdc_token: Address,
@@ -204,11 +225,14 @@ impl DisciplrVault {
     // validate_milestone
     // -----------------------------------------------------------------------
 
-    /// Verifier (or authorized party) validates milestone completion.
+    /// Allows the verifier (or authorized party) to validate milestone completion.
     ///
-    /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
-    /// this function. If `verifier` is `None`, only the creator may call it (no validation by
-    /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
+    /// # Safety and Trust
+    /// When verifier is `Some(addr)`, only that address may validate; when `None`, only the creator may validate.
+    /// Rejects when current time >= `end_timestamp` (`Error::MilestoneExpired`).
+    ///
+    /// # Events
+    /// Emits `milestone_validated` on success.
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -246,6 +270,13 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Release vault funds to `success_destination`.
+    ///
+    /// # Prerequisites
+    /// - Vault status must be `Active`.
+    /// - Deadline reached (`now >= end_timestamp`) OR milestone validated (`milestone_validated == true`).
+    ///
+    /// # Events
+    /// Emits `funds_released` with the released amount.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -255,7 +286,7 @@ impl DisciplrVault {
             .ok_or(Error::VaultNotFound)?;
 
         if vault.status != VaultStatus::Active {
-            return Err(Error::VaultNotActive); // Or InvalidStatus as appropriate
+            return Err(Error::VaultNotActive);
         }
 
         // Check release conditions.
@@ -267,13 +298,7 @@ impl DisciplrVault {
             return Err(Error::NotAuthorized);
         }
 
-        let token_client = token::Client::new(&env, &usdc_token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &vault.success_destination,
-            &vault.amount,
-        );
-
+        // --- EFFECTS ---
         vault.status = VaultStatus::Completed;
         env.storage().instance().set(&vault_key, &vault);
 
@@ -281,6 +306,15 @@ impl DisciplrVault {
             (Symbol::new(&env, "funds_released"), vault_id),
             vault.amount,
         );
+
+        // --- INTERACTIONS ---
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.success_destination,
+            &vault.amount,
+        );
+
         Ok(true)
     }
 
@@ -289,6 +323,14 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    ///
+    /// # Prerequisites
+    /// - Vault status must be `Active`.
+    /// - Current time must be strictly past `end_timestamp`.
+    /// - Milestone must NOT have been validated.
+    ///
+    /// # Events
+    /// Emits `funds_redirected` with the redirected amount.
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -302,21 +344,14 @@ impl DisciplrVault {
         }
 
         if env.ledger().timestamp() < vault.end_timestamp {
-            return Err(Error::InvalidTimestamp); // Too early to redirect
+            return Err(Error::InvalidTimestamp);
         }
 
-        // If milestone was validated the funds should go to success, not failure.
         if vault.milestone_validated {
             return Err(Error::NotAuthorized);
         }
 
-        let token_client = token::Client::new(&env, &usdc_token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &vault.failure_destination,
-            &vault.amount,
-        );
-
+        // --- EFFECTS ---
         vault.status = VaultStatus::Failed;
         env.storage().instance().set(&vault_key, &vault);
 
@@ -324,6 +359,15 @@ impl DisciplrVault {
             (Symbol::new(&env, "funds_redirected"), vault_id),
             vault.amount,
         );
+
+        // --- INTERACTIONS ---
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &vault.failure_destination,
+            &vault.amount,
+        );
+
         Ok(true)
     }
 
@@ -332,6 +376,13 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Cancel vault and return funds to creator.
+    ///
+    /// # Prerequisites
+    /// - Only the creator may call this method (`creator.require_auth()`).
+    /// - Vault status must be `Active`.
+    ///
+    /// # Events
+    /// Emits `vault_cancelled`.
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -346,6 +397,14 @@ impl DisciplrVault {
             return Err(Error::VaultNotActive);
         }
 
+        // --- EFFECTS ---
+        vault.status = VaultStatus::Cancelled;
+        env.storage().instance().set(&vault_key, &vault);
+
+        env.events()
+            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), ());
+
+        // --- INTERACTIONS ---
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
@@ -353,11 +412,6 @@ impl DisciplrVault {
             &vault.amount,
         );
 
-        vault.status = VaultStatus::Cancelled;
-        env.storage().instance().set(&vault_key, &vault);
-
-        env.events()
-            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), ());
         Ok(true)
     }
 
@@ -384,6 +438,14 @@ impl DisciplrVault {
             .instance()
             .get(&DataKey::VaultCount)
             .unwrap_or(0)
+    }
+
+    /// Return the contract version string.
+    ///
+    /// This follows the versioning defined in `Cargo.toml`. Useful for
+    /// integrators and auditors to verify the deployed bytecode.
+    pub fn version(env: Env) -> Symbol {
+        Symbol::new(&env, env!("CARGO_PKG_VERSION"))
     }
 }
 
@@ -816,6 +878,16 @@ mod tests {
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Completed);
     }
+
+    #[test]
+    fn test_version() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+        let version = client.version();
+        // Since we know Cargo.toml has version 0.1.0
+        assert_eq!(version, Symbol::new(&setup.env, "0.1.0"));
+    }
+}
 
     #[test]
     fn test_release_funds_after_deadline() {
