@@ -692,17 +692,18 @@ fn require_active(env: &Env, vault: &ProductivityVault) {
 This is the single enforcement point. Every state-changing function (`release_funds`, `redirect_funds`, `cancel_vault`, `validate_milestone`) calls this before touching any state or balances.
 
 ### `release_funds`
-
-1. Loads the vault from persistent storage (panics with `VaultNotFound` if missing).
-2. Calls `require_active` — rejects immediately if status is not `Active`.
-3. Performs the transfer to `success_destination` (stubbed; production calls token contract).
-4. Sets `status = Completed` and persists the vault **before returning**, so any replay or re-entrant call sees the terminal state.
+ 
+ 1. Loads the vault from persistent storage (panics with `VaultNotFound` if missing).
+ 2. Calls `require_active` — rejects immediately if status is not `Active`.
+ 3. **Sets `status = Completed` and persists the vault** (Checks & Effects).
+ 4. Performs the transfer to `success_destination` (Interactions).
 
 ### `redirect_funds`
-
-1. Loads the vault and calls `require_active`.
-2. Checks `env.ledger().timestamp() > end_timestamp` — panics with `DeadlineNotReached` if too early.
-3. Sets `status = Failed` and persists before returning.
+ 
+ 1. Loads the vault and calls `require_active`.
+ 2. Checks `env.ledger().timestamp() > end_timestamp` — panics with `DeadlineNotReached` if too early.
+ 3. **Sets `status = Failed` and persists the vault** (Checks & Effects).
+ 4. Performs the transfer to `failure_destination` (Interactions).
 
 ### Error Enum
 

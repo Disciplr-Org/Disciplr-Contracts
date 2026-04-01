@@ -1,4 +1,24 @@
+<<<<<<< doc/changelog
 # Disciplr Contracts
+=======
+# Disciplr-Contracts
+
+Soroban-based productivity vaults for the Disciplr platform.
+
+## Versioning
+
+This project uses semantic versioning. The version string is defined in `Cargo.toml` and is baked into the contract bytecode at compile time.
+
+Integrators and auditors can verify the contract version by calling the read-only `version()` method:
+
+```rust
+pub fn version(env: Env) -> Symbol
+```
+
+The version returned by this method maps directly to a git release tag in this repository (e.g., version `0.1.0` corresponds to tag `v0.1.0`).
+
+## Overview
+>>>>>>> main
 
 Soroban smart contracts for [Disciplr](https://github.com/your-org/Disciplr): programmable time-locked USDC vaults on Stellar.
 
@@ -23,7 +43,11 @@ Single contract **disciplr-vault** with:
 The `create_vault` function now includes full USDC token transfer functionality:
 
 - Transfers specified USDC amount from creator to contract
+<<<<<<< doc/changelog
 - Validates all inputs (bounded token amount, checked duration arithmetic, valid timestamps)
+=======
+- Validates all inputs (amount > 0, valid timestamps)
+>>>>>>> main
 - Requires creator authorization
 - Handles insufficient balance errors
 - **Test coverage: 100% of create_vault logic**
@@ -33,6 +57,7 @@ See [USDC_INTEGRATION.md](./USDC_INTEGRATION.md) for detailed documentation.
 
 ## Documentation
 
+<<<<<<< doc/changelog
 For detailed contract documentation, see [vesting.md](vesting.md). For a history of changes, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Security
@@ -42,6 +67,11 @@ The Disciplr Vault follows a transparent security model based on creator authori
 Overflow hardening:
 - Vault creation uses explicit checked subtraction for `end_timestamp - start_timestamp`, including `u64::MAX` boundary cases.
 - Every token transfer path re-validates the stored `amount` before calling the token contract, so malformed or out-of-range values are rejected before any transfer attempt.
+=======
+For detailed contract documentation, see [vesting.md](vesting.md).
+
+The Disciplr Vault strictly follows the **Checks-Effects-Interactions (CEI)** pattern for all state-changing operations, especially token transfers. This ensures state consistency and prevents reentrancy, even though Soroban provides atomic transaction execution. For a detailed analysis of the trust model, CEI implementation, and security assumptions, please refer to the [Security and Trust Model](vesting.md#security-and-trust-model).
+>>>>>>> main
 
 ---
 
@@ -94,12 +124,20 @@ pub struct ProductivityVault {
     pub amount: i128,                // Amount of USDC locked (in stroops)
     pub start_timestamp: u64,       // Unix timestamp when vault becomes active
     pub end_timestamp: u64,          // Unix deadline for milestone validation
+<<<<<<< doc/changelog
     pub milestone_hash: BytesN<32>, // Commitment metadata for milestone requirements
     pub verifier: Option<Address>,  // Optional trusted verifier address
     pub success_destination: Address, // Address for fund release on success
     pub failure_destination: Address, // Address for fund redirect on failure
     pub status: VaultStatus,          // Current lifecycle status
     pub milestone_validated: bool,    // True once validate_milestone is called
+=======
+    pub milestone_hash: BytesN<32>, // SHA-256 hash of milestone requirements
+    pub verifier: Option<Address>,  // Optional trusted verifier address
+    pub success_destination: Address, // Address for fund release on success
+    pub failure_destination: Address, // Address for fund redirect on failure
+    pub status: VaultStatus,        // Current lifecycle state of the vault
+>>>>>>> main
 }
 ```
 
@@ -109,12 +147,19 @@ pub struct ProductivityVault {
 | `amount` | `i128` | Total USDC amount locked (in stroops, 1 USDC = 10^7 stroops) |
 | `start_timestamp` | `u64` | Unix timestamp (seconds) when vault becomes active |
 | `end_timestamp` | `u64` | Unix timestamp (seconds) deadline for milestone validation |
+<<<<<<< doc/changelog
 | `milestone_hash` | `BytesN<32>` | Commitment metadata for an off-chain milestone description |
+=======
+| `milestone_hash` | `BytesN<32>` | SHA-256 hash documenting milestone requirements |
+>>>>>>> main
 | `verifier` | `Option<Address>` | Optional trusted party who can validate milestones |
 | `success_destination` | `Address` | Recipient address on successful milestone completion |
 | `failure_destination` | `Address` | Recipient address when milestone is not completed |
 | `status` | `VaultStatus` | Current lifecycle state of the vault |
+<<<<<<< doc/changelog
 | `milestone_validated` | `bool` | Set to `true` once `validate_milestone` is called. Enables early fund release before deadline. |
+=======
+>>>>>>> main
 
 ---
 
@@ -143,7 +188,11 @@ pub fn create_vault(
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
 - `end_timestamp`: Deadline for milestone validation (unix seconds)
+<<<<<<< doc/changelog
 - `milestone_hash`: commitment metadata for the off-chain milestone document
+=======
+- `milestone_hash`: SHA-256 hash of milestone document
+>>>>>>> main
 - `verifier`: Optional verifier address (None = anyone can validate)
 - `success_destination`: Address to receive funds on success
 - `failure_destination`: Address to receive funds on failure
@@ -152,9 +201,13 @@ pub fn create_vault(
 
 **Requirements:**
 - Caller must authorize the transaction (`creator.require_auth()`)
+<<<<<<< doc/changelog
 - `amount` must satisfy `MIN_AMOUNT <= amount <= MAX_AMOUNT`
 - `end_timestamp` must be greater than `start_timestamp`
 - `end_timestamp - start_timestamp` is checked explicitly and must be `<= MAX_VAULT_DURATION`
+=======
+- `end_timestamp` must be greater than `start_timestamp`
+>>>>>>> main
 - USDC transfer must be approved by creator before calling
 
 **Emits:** `vault_created` event
@@ -355,8 +408,11 @@ Emitted when a milestone is successfully validated.
 
 2. **Non-Custodial**: The contract holds tokens in escrow but never has withdrawal authority beyond the defined destination addresses.
 
+<<<<<<< doc/changelog
 3. **Issuer / Admin Trust**: Production USDC still carries issuer-level governance and compliance risk. Disciplr cannot prevent issuer or admin actions that freeze, pause, blacklist, migrate, or otherwise affect the external asset. See [USDC_INTEGRATION.md](USDC_INTEGRATION.md).
 
+=======
+>>>>>>> main
 ### Current Limitations (TODOs)
 
 The following security features are not yet implemented:
@@ -365,6 +421,7 @@ The following security features are not yet implemented:
 - [ ] **Token Transfer**: Actual USDC transfer logic is not implemented
 - [ ] **Timestamp Validation**: Methods don't validate timestamps
 - [ ] **Verifier Authorization**: No check that caller is the designated verifier
+<<<<<<< doc/changelog
 - [x] **Reentrancy Protection**: No guards against reentrancy attacks (see token callback assumptions below)
 - [ ] **Access Control**: Basic auth only; no complex role-based access
 
@@ -396,6 +453,11 @@ The contract enforces strict token address validation:
 - `Error::TokenNotInitialized (10)`: Contract was called before `initialize()`
 - `Error::InvalidTokenAddress (11)`: Provided token address does not match initialized token
 
+=======
+- [ ] **Reentrancy Protection**: No guards against reentrancy attacks
+- [ ] **Access Control**: Basic auth only; no complex role-based access
+
+>>>>>>> main
 ### Recommendations for Production
 
 1. **Use Soroban Token Interface**: Implement standard token operations for USDC
@@ -517,6 +579,7 @@ match vault_state {
 
 ---
 
+<<<<<<< doc/changelog
 ## Security Auditing
 
 This project runs [`cargo audit`](https://github.com/rustsec/rustsec/tree/main/cargo-audit) in CI on every push and pull request to detect known vulnerabilities in dependencies.
@@ -548,6 +611,8 @@ All exceptions must be reviewed and justified before merging.
 
 ---
 
+=======
+>>>>>>> main
 ## Tech Stack
 
 - **Rust** (edition 2021)
@@ -580,6 +645,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 Output: `target/wasm32-unknown-unknown/release/disciplr_vault.wasm`
 
+<<<<<<< doc/changelog
 ### Format
 
 Code style is enforced by `rustfmt`. The CI pipeline runs `cargo fmt -- --check` as a **dedicated `fmt` job** that must pass before the build/test job is allowed to start. This gives reviewers and auditors a clear, isolated signal when a PR has style issues.
@@ -600,6 +666,8 @@ cargo fmt
 
 > If `cargo fmt -- --check` exits non-zero, run `cargo fmt` and commit the result before pushing.
 
+=======
+>>>>>>> main
 ### Test
 
 ```bash
@@ -746,6 +814,7 @@ git push origin feature/your-feature-name
 
 Before submitting a PR:
 
+<<<<<<< doc/changelog
 1. **Check formatting** (CI gate — must pass first):
    ```bash
    cargo fmt -- --check
@@ -753,18 +822,31 @@ Before submitting a PR:
    ```
 
 2. **Run all tests**:
+=======
+1. **Run all tests**:
+>>>>>>> main
    ```bash
    cargo test
    ```
 
+<<<<<<< doc/changelog
 3. **Build for release**:
+=======
+2. **Build for release**:
+>>>>>>> main
    ```bash
    cargo build --target wasm32-unknown-unknown --release
    ```
 
+<<<<<<< doc/changelog
 4. **Verify no warnings**:
    ```bash
    cargo clippy -- -D warnings
+=======
+3. **Verify no warnings**:
+   ```bash
+   cargo clippy
+>>>>>>> main
    ```
 
 ### Test Coverage
@@ -869,6 +951,7 @@ Boundary and over-limit cases are fully covered in the tests, including:
 - Duration exceeding maximum
 - Invalid timestamp ordering
 - Past start timestamps
+<<<<<<< doc/changelog
 
 
 ---
@@ -965,3 +1048,5 @@ cargo test
 ```
 
 ---
+=======
+>>>>>>> main
