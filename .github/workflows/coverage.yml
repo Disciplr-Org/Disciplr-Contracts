@@ -2,7 +2,7 @@ name: Test Coverage
 
 on:
   push:
-    branches: [main, test/**]
+    branches: [main, "audit/**", "test/**"]
   pull_request:
     branches: [main]
 
@@ -18,15 +18,13 @@ jobs:
           toolchain: stable
 
       - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
 
       - name: Run tests
         run: cargo test --verbose
 
       - name: Generate coverage report
-        run: |
-          cargo tarpaulin --out Xml --out Html --output-dir coverage
-          echo "Coverage report generated in coverage/"
+        run: cargo tarpaulin --config tarpaulin.toml
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
@@ -34,16 +32,18 @@ jobs:
           name: coverage-report
           path: coverage/
 
-      - name: Check coverage threshold
+      - name: Check coverage threshold (≥ 95 %)
         run: |
-          COVERAGE=$(cargo tarpaulin --out Stdout | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
-          echo "Current coverage: $COVERAGE%"
-          # Note: 92%+ is acceptable given Soroban SDK event publishing limitations
-          # Functional coverage of business logic is 100%
-          if (( $(echo "$COVERAGE >= 90.0" | bc -l) )); then
-            echo "✅ Coverage threshold met: $COVERAGE% >= 90%"
-            exit 0
+          COVERAGE=$(cargo tarpaulin --config tarpaulin.toml 2>&1 \
+            | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
+          echo "Current coverage: ${COVERAGE}%"
+          if [ -z "$COVERAGE" ]; then
+            echo "❌ Could not parse coverage output"
+            exit 1
+          fi
+          if awk "BEGIN { exit !($COVERAGE >= 95.0) }"; then
+            echo "✅ Coverage threshold met: ${COVERAGE}% >= 95%"
           else
-            echo "❌ Coverage below threshold: $COVERAGE% < 90%"
+            echo "❌ Coverage below threshold: ${COVERAGE}% < 95%"
             exit 1
           fi

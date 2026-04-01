@@ -16,20 +16,30 @@ cargo test test_active_to_completed_via_release
 cargo tarpaulin --out Html --out Stdout
 ```
 
-## Property Tests for Random Amounts (Issue #146)
+## Property Tests for Timestamp Ordering (Issue #136)
 
-New file: `tests/proptest_amounts.rs`
+New file: `tests/proptest_timestamps.rs`
 
 What is validated:
 
-- For random `amount` in `[MIN_AMOUNT, MAX_AMOUNT]` with valid timestamps and sufficient balance: `create_vault` succeeds (no panic) and persisted amount matches input.
-- For random `amount` in `[MIN_AMOUNT, MAX_AMOUNT]` with intentionally insufficient balance: `try_create_vault` returns `Err` (error path only).
+- Valid ordering property: `start < end` succeeds for randomized inputs.
+- Invalid ordering property: `start >= end` rejects with `Error::InvalidTimestamps`.
+- Duration bound property: `(end - start) > MAX_VAULT_DURATION` rejects with `Error::DurationTooLong`.
 
-Explicit edge vectors:
+Strategy design (controlled randomness):
 
-- `amount = MIN_AMOUNT` succeeds.
-- `amount = MAX_AMOUNT` succeeds.
-- `amount = MAX_AMOUNT` with minted balance `MAX_AMOUNT - 1` returns error.
+- Valid cases use `(start_offset, duration)` with:
+  - `start = now + start_offset`
+  - `duration in 1..=MAX_VAULT_DURATION`
+  - `end = start + duration`
+- Invalid ordering uses `end = start.saturating_sub(backoff)` to guarantee `end <= start`.
+- Overflow risk is avoided by bounded ranges for `start_offset` and `duration`.
+
+Explicit edge vectors included:
+
+- `start == end` (reject)
+- `start = 0`, `end = 1` with ledger time at `0` (accept)
+- `duration == MAX_VAULT_DURATION` (accept)
 
 ## Test Coverage: 95%+ Achieved ✅
 
