@@ -1,3 +1,4 @@
+<<<<<<< doc/amount-bounds
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
@@ -85,9 +86,26 @@ pub struct ProductivityVault {
 // ---------------------------------------------------------------------------
 
 // Constants to prevent abuse, spam, and potential overflow issues
-pub const MAX_VAULT_DURATION: u64 = 365 * 24 * 60 * 60; // 1 year in seconds
-pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC with 7 decimals
-pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10 million USDC with 7 decimals
+
+/// Maximum allowed vault duration in seconds (365 days).
+///
+/// Enforced in `create_vault`: `end_timestamp − start_timestamp` must not
+/// exceed this value, otherwise returns `Error::DurationTooLong`.
+pub const MAX_VAULT_DURATION: u64 = 365 * 24 * 60 * 60;
+
+/// Minimum vault amount in stroops (1 USDC).
+///
+/// Stellar USDC uses 7 decimal places: 1 USDC = 10_000_000 stroops.
+/// Enforced in `create_vault`: `amount` must be ≥ `MIN_AMOUNT`,
+/// otherwise returns `Error::InvalidAmount`.
+pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC
+
+/// Maximum vault amount in stroops (10,000,000 USDC).
+///
+/// Stellar USDC uses 7 decimal places: 1 USDC = 10_000_000 stroops.
+/// Enforced in `create_vault`: `amount` must be ≤ `MAX_AMOUNT`,
+/// otherwise returns `Error::InvalidAmount`.
+pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10M USDC
 
 #[contracttype]
 #[derive(Clone)]
@@ -1526,3 +1544,5 @@ mod test {
         assert_eq!(token_client.balance(&vault_contract), MIN_AMOUNT);
     }
 }
+=======
+>>>>>>> main

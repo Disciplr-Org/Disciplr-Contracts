@@ -1,5 +1,6 @@
 /target
-Cargo.lock
+# Cargo.lock is intentionally tracked for reproducible builds and audit purposes.
+# See README.md "SDK Version Pin" section.
 .DS_Store
 *.wasm
 test_snapshots/

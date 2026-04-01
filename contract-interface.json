@@ -1,0 +1,133 @@
+{
+  "name": "disciplr-vault",
+  "version": "0.1.0",
+  "description": "Programmable time-locked USDC vaults on Stellar",
+  "types": {
+    "VaultStatus": {
+      "type": "enum",
+      "variants": {
+        "Active": 0,
+        "Completed": 1,
+        "Failed": 2,
+        "Cancelled": 3
+      }
+    },
+    "ProductivityVault": {
+      "type": "struct",
+      "fields": [
+        { "name": "creator", "type": "Address" },
+        { "name": "amount", "type": "i128" },
+        { "name": "start_timestamp", "type": "u64" },
+        { "name": "end_timestamp", "type": "u64" },
+        { "name": "milestone_hash", "type": "BytesN<32>" },
+        { "name": "verifier", "type": "Option<Address>" },
+        { "name": "success_destination", "type": "Address" },
+        { "name": "failure_destination", "type": "Address" },
+        { "name": "status", "type": "VaultStatus" },
+        { "name": "milestone_validated", "type": "bool" }
+      ]
+    },
+    "Error": {
+      "type": "error",
+      "variants": {
+        "VaultNotFound": 1,
+        "NotAuthorized": 2,
+        "VaultNotActive": 3,
+        "InvalidTimestamp": 4,
+        "MilestoneExpired": 5,
+        "InvalidStatus": 6,
+        "InvalidAmount": 7,
+        "InvalidTimestamps": 8,
+        "DurationTooLong": 9,
+        "MilestoneAlreadyValidated": 10
+      }
+    }
+  },
+  "functions": [
+    {
+      "name": "create_vault",
+      "inputs": [
+        { "name": "usdc_token", "type": "Address" },
+        { "name": "creator", "type": "Address" },
+        { "name": "amount", "type": "i128" },
+        { "name": "start_timestamp", "type": "u64" },
+        { "name": "end_timestamp", "type": "u64" },
+        { "name": "milestone_hash", "type": "BytesN<32>" },
+        { "name": "verifier", "type": "Option<Address>" },
+        { "name": "success_destination", "type": "Address" },
+        { "name": "failure_destination", "type": "Address" }
+      ],
+      "outputs": { "type": "Result<u32, Error>" }
+    },
+    {
+      "name": "validate_milestone",
+      "inputs": [
+        { "name": "vault_id", "type": "u32" }
+      ],
+      "outputs": { "type": "Result<bool, Error>" }
+    },
+    {
+      "name": "release_funds",
+      "inputs": [
+        { "name": "vault_id", "type": "u32" },
+        { "name": "usdc_token", "type": "Address" }
+      ],
+      "outputs": { "type": "Result<bool, Error>" }
+    },
+    {
+      "name": "redirect_funds",
+      "inputs": [
+        { "name": "vault_id", "type": "u32" },
+        { "name": "usdc_token", "type": "Address" }
+      ],
+      "outputs": { "type": "Result<bool, Error>" }
+    },
+    {
+      "name": "cancel_vault",
+      "inputs": [
+        { "name": "vault_id", "type": "u32" },
+        { "name": "usdc_token", "type": "Address" }
+      ],
+      "outputs": { "type": "Result<bool, Error>" }
+    },
+    {
+      "name": "get_vault_state",
+      "inputs": [
+        { "name": "vault_id", "type": "u32" }
+      ],
+      "outputs": { "type": "Option<ProductivityVault>" }
+    },
+    {
+      "name": "vault_count",
+      "inputs": [],
+      "outputs": { "type": "u32" }
+    }
+  ],
+  "events": [
+    {
+      "name": "vault_created",
+      "topic": ["vault_created", "u32"],
+      "data": "ProductivityVault"
+    },
+    {
+      "name": "milestone_validated",
+      "topic": ["milestone_validated", "u32"],
+      "data": null
+    },
+    {
+      "name": "funds_released",
+      "topic": ["funds_released", "u32"],
+      "data": "i128"
+    },
+    {
+      "name": "funds_redirected",
+      "topic": ["funds_redirected", "u32"],
+      "data": "i128"
+    },
+    {
+      "name": "vault_cancelled",
+      "topic": ["vault_cancelled", "u32"],
+      "data": null
+    }
+  ]
+}
