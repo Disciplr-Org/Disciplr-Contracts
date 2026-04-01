@@ -13,3 +13,5 @@ exclude-files = []
 
 # Count branches for more accurate coverage
 count-branches = true
+
+# NOTE: For network-incident operations, no specific coverage exclusions are currently required.
