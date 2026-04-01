@@ -307,12 +307,55 @@ Emitted when a milestone is successfully validated.
 
 ## Security and Trust Model
 
+<<<<<<< doc/cei-soroban
+### trust Model
+
+1. **Absolute Verifier Power**: If a `verifier` is designated, they hold absolute power over the milestone validation process. The contract cannot verify off-chain project completion; it relies entirely on the `verifier`'s signature or authorization.
+2. **Creator Authority**: The `creator` is the only address authorized to `create_vault` or `cancel_vault`. They must authorize the initial USDC funding.
+3. **No Administrative Overrides**: There is no "admin" or "owner" role with the power to sweep funds or override the vault logic. Funds can only flow to the predefined `success_destination`, `failure_destination`, or back to the `creator` on cancellation.
+
+### External Dependencies
+
+1. **USDC Token Contract**: The contract interacts with an external USDC token address (Stellar Asset Contract). The security of the vault depends on the integrity and availability of this external contract.
+2. **Ledger Reliability**: The contract relies on the Stellar network's ledger timestamp for all timing constraints (`start_timestamp`, `end_timestamp`).
+
+### Checks-Effects-Interactions (CEI) Pattern
+
+The Disciplr Vault strictly follows the **Checks-Effects-Interactions** pattern for all state-changing operations, especially token transfers. This is a critical security practice in smart contract development to prevent reentrancy attacks and ensure state consistency.
+
+#### The Pattern in Practice:
+=======
 ## Security and Trust Model
 
 This section outlines the security properties, trust assumptions, and known limitations of the Disciplr Vault contract.
+>>>>>>> main
 
-### Trust Model
+1.  **Checks**: All prerequisites are validated first.
+    *   Authorization (`require_auth`)
+    *   Vault existence and status (`Active`)
+    *   Timestamp constraints (deadlines, windows)
+    *   Input validation (amounts, addresses)
+2.  **Effects**: The contract's internal state is updated *before* any external interactions.
+    *   Setting vault status to `Completed`, `Failed`, or `Cancelled`.
+    *   Persisting the updated state to Soroban storage.
+    *   This ensures that even if an execution is interrupted or a sub-call attempts to re-enter, the contract already reflects the terminal state.
+3.  **Interactions**: External contract calls are performed last.
+    *   `token_client.transfer(...)` to move USDC funds.
+    *   If the interaction fails, the entire Soroban transaction reverts, ensuring the state update is also undone (atomicity).
 
+<<<<<<< doc/cei-soroban
+#### Why CEI?
+While Soroban provides inherent atomicity (reverting all changes if any part fails), following CEI is essential for:
+*   **Reentrancy Prevention**: Prevents a malicious recipient contract from re-entering the vault contract and attempting to double-release funds before the state is updated.
+*   **Logical Clarity**: Makes the security properties of the contract easier to audit and verify.
+*   **Resilience**: Protects against unexpected behavior in complex multi-contract interactions.
+
+### Known Limitations & Security Notes
+
+1. **USDC Token Address Consistency**: The `usdc_token` address is not pinned to the vault at creation. Instead, it is passed as an argument to release/redirect functions. While this provides flexibility, it requires callers to ensure they are interacting with the correct asset contract.
+2. **No Emergency Stops**: There is currently no "pause" or circuit breaker mechanism. Once a vault is active, it follows the defined lifecycle until completion or cancellation.
+3. **Storage Quotas**: Contract performance and cost are subject to Soroban storage fees and quotas.
+=======
 1. **Verifier Trust (Critical)**: When a `verifier` is designated (via `Some(Address)`), that address has **absolute power** to validate the milestone and cause funds to be released to the `success_destination` before the deadline. If the verifier is compromised or malicious, they can release funds prematurely.
 2. **Creator Power**: If no `verifier` is set (`None`), only the `creator` can validate the milestone. Additionally, the `creator` can cancel the vault at any time to reclaim funds, assuming the vault is still `Active`. 
 3. **Immutable Destinations**: Once a vault is created, the `success_destination` and `failure_destination` are immutable. This prevents redirection of funds after the vault is funded.
@@ -340,6 +383,7 @@ This section outlines the security properties, trust assumptions, and known limi
 4. **Upgradeability**: Consider proxy pattern for contract upgrades.
 5. **Comprehensive Tests**: Achieve 95%+ test coverage.
 6. **External Audits**: Have security experts review before mainnet deployment.
+>>>>>>> main
 
 ---
 

@@ -51,9 +51,7 @@ See [USDC_INTEGRATION.md](./USDC_INTEGRATION.md) for detailed documentation.
 
 For detailed contract documentation, see [vesting.md](vesting.md).
 
-## Security
-
-The Disciplr Vault follows a transparent security model based on creator authorization and optional third-party verification. For a detailed analysis of the trust model, assumptions, and known limitations (including CEI pattern notes), please refer to the [Security and Trust Model](vesting.md#security-and-trust-model) in the documentation.
+The Disciplr Vault strictly follows the **Checks-Effects-Interactions (CEI)** pattern for all state-changing operations, especially token transfers. This ensures state consistency and prevents reentrancy, even though Soroban provides atomic transaction execution. For a detailed analysis of the trust model, CEI implementation, and security assumptions, please refer to the [Security and Trust Model](vesting.md#security-and-trust-model).
 
 ---
 
