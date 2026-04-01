@@ -1,3 +1,4 @@
+<<<<<<< feature/address-validation
 # Disciplr Vault Contract Documentation
 
 ## Overview
@@ -503,3 +504,5 @@ disciplr-contracts/
 | 0.1.0 | Initial release with basic vault structure, stubbed implementations |
 | 0.2.0 | Issue #124: reject equal success/failure destinations (`SameDestination` error) |
 | 0.3.0 | Issue #125: reject invalid address role overlaps (`InvalidAddress` error) |
+=======
+>>>>>>> main
