@@ -136,7 +136,8 @@ pub struct ProductivityVault {
     pub verifier: Option<Address>,  // Optional trusted verifier address
     pub success_destination: Address, // Address for fund release on success
     pub failure_destination: Address, // Address for fund redirect on failure
-    pub status: VaultStatus,        // Current lifecycle state of the vault
+    pub status: VaultStatus,          // Current lifecycle status
+    pub milestone_validated: bool,    // True once validate_milestone is called
 }
 ```
 
@@ -151,6 +152,7 @@ pub struct ProductivityVault {
 | `success_destination` | `Address` | Recipient address on successful milestone completion |
 | `failure_destination` | `Address` | Recipient address when milestone is not completed |
 | `status` | `VaultStatus` | Current lifecycle state of the vault |
+| `milestone_validated` | `bool` | Set to `true` once `validate_milestone` is called. Enables early fund release before deadline. |
 
 ---
 

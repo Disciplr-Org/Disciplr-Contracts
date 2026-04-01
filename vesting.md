@@ -51,7 +51,8 @@ pub struct ProductivityVault {
     pub verifier: Option<Address>,  // Optional trusted verifier address
     pub success_destination: Address, // Address for fund release on success
     pub failure_destination: Address, // Address for fund redirect on failure
-    pub status: VaultStatus,        // Current vault status
+    pub status: VaultStatus,          // Current lifecycle status
+    pub milestone_validated: bool,    // True once verifier/creator calls validate_milestone
 }
 ```
 
@@ -66,6 +67,7 @@ pub struct ProductivityVault {
 | `success_destination` | `Address` | Recipient address on successful milestone completion |
 | `failure_destination` | `Address` | Recipient address when milestone is not completed |
 | `status` | `VaultStatus` | Current lifecycle state of the vault |
+| `milestone_validated` | `bool` | Set to `true` once `validate_milestone` is called. Enables early fund release before deadline. |
 
 ---
 
@@ -78,6 +80,7 @@ Creates a new productivity vault and locks USDC funds.
 ```rust
 pub fn create_vault(
     env: Env,
+    usdc_token: Address,
     creator: Address,
     amount: i128,
     start_timestamp: u64,
@@ -86,10 +89,11 @@ pub fn create_vault(
     verifier: Option<Address>,
     success_destination: Address,
     failure_destination: Address,
-) -> u32
+) -> Result<u32, Error>
 ```
 
 **Parameters:**
+- `usdc_token`: Address of the USDC token contract used for the transfer
 - `creator`: Address of the vault creator (must authorize transaction)
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
@@ -144,11 +148,12 @@ pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error>
 Releases locked funds to the success destination (typically after validation).
 
 ```rust
-pub fn release_funds(env: Env, vault_id: u32) -> bool
+pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to release funds from
+- `usdc_token`: Address of the USDC token contract (must match the token used at creation)
 
 **Returns:** `bool` - True if release successful
 
@@ -165,11 +170,12 @@ pub fn release_funds(env: Env, vault_id: u32) -> bool
 Redirects funds to the failure destination when milestone is not completed by deadline.
 
 ```rust
-pub fn redirect_funds(env: Env, vault_id: u32) -> bool
+pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to redirect funds from
+- `usdc_token`: Address of the USDC token contract (must match the token used at creation)
 
 **Returns:** `bool` - True if redirect successful
 
@@ -186,11 +192,12 @@ pub fn redirect_funds(env: Env, vault_id: u32) -> bool
 Allows the creator to cancel the vault and retrieve locked funds.
 
 ```rust
-pub fn cancel_vault(env: Env, vault_id: u32) -> bool
+pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error>
 ```
 
 **Parameters:**
 - `vault_id`: ID of the vault to cancel
+- `usdc_token`: Address of the USDC token contract (must match the token used at creation)
 
 **Returns:** `bool` - True if cancellation successful
 
@@ -242,6 +249,7 @@ ProductivityVault {
     success_destination: Address,
     failure_destination: Address,
     status: VaultStatus::Active,
+    milestone_validated: false,
 }
 ```
 
@@ -455,12 +463,10 @@ This documentation assumes:
 
 ### Known Limitations & Risks
 
-1. **USDC Token Address Consistency**: The `usdc_token` address is **not stored** in the vault data. Instead, it is passed as an argument to methods like `release_funds`, `redirect_funds`, and `cancel_vault`. 
-   > [!WARNING]
-   > There is a risk that a caller provides a different token address than the one used during vault creation. Users should verify the token contract used in interactions matches the intended asset.
-2. **CEI Pattern Violations**: Some methods perform token transfers **before** updating the internal vault status. While Soroban's atomicity mitigates some traditional reentrancy risks, following the Checks-Effects-Interactions (CEI) pattern more strictly is a recommended enhancement for future versions.
-3. **No Administrative Overrides**: There is no "admin" or "owner" role with the power to rescue funds from a stalled vault (e.g., if a verifier loses their key and the deadline is far in the future). Funds are strictly bound by the `end_timestamp` and authorization rules.
-4. **Lack of Reentrancy Guards**: The contract does not currently implement explicit reentrancy guards, relying instead on the synchronous and atomic nature of Soroban contract calls.
+1. **USDC Token Address Consistency**: The `usdc_token` address is not stored in the vault data. It is passed as an argument to `release_funds`, `redirect_funds`, and `cancel_vault`. A caller could provide a different token address than the one used at vault creation — always verify the token contract matches the intended asset.
+2. **CEI Pattern Violations**: Some methods perform token transfers before updating internal vault status. While Soroban atomicity mitigates traditional reentrancy risks, stricter Checks-Effects-Interactions ordering is recommended for future versions.
+3. **No Emergency Stops**: There is no circuit breaker or pause mechanism. Funds are strictly bound by `end_timestamp` and authorization rules.
+4. **Precision**: All amounts are `i128` in stroops (7 decimals for USDC). Callers must provide correct decimal-adjusted amounts.
 
 ### Recommendations for Integration
 
