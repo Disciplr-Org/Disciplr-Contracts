@@ -489,14 +489,34 @@ For deployments using the standard Soroban token interface (including Stellar As
 
 #### Deployment-Specific Assumptions
 
+<<<<<<< docs/token-trust-model
+1. **Stellar Ledger Integrity**: Soroban authorization and storage semantics are assumed to be enforced correctly.
+2. **Ledger Timestamp Reliability**: Time-based logic depends on `env.ledger().timestamp()`.
+3. **Token Contract Behavior**: The integrated USDC token contract is assumed to implement the expected Soroban token interface correctly.
+4. **Issuer / Admin Powers Remain External**: Disciplr does not remove or constrain powers held by the underlying USDC issuer or asset administrator.
+=======
 This documentation assumes:
 
 1. **Standard Stellar Asset Contract (SAC)**: When using Stellar's native USDC or other Stellar Asset Contracts, the token interface provides no callback mechanism
 2. **No custom token allowlist**: The contract currently does not enforce an allowlist of permitted token contracts
 3. **Trust in token contract**: Users must trust that the token contract behaves according to its documented interface
+>>>>>>> main
 
-### Known Limitations & Risks
+### Known Limitations and Risks
 
+<<<<<<< docs/token-trust-model
+1. **Per-Call Token Address**: `usdc_token` is passed into release, redirect, and cancel flows instead of being pinned into vault state.
+2. **External Asset Governance Risk**: A vault can be locally valid while the external asset is frozen, paused, blacklisted, migrated, or otherwise restricted by issuer policy.
+3. **CEI Pattern Deviation**: Some methods transfer tokens before updating internal status. Soroban atomicity reduces risk, but stricter checks-effects-interactions ordering would still be preferable.
+4. **No Emergency Pause**: There is currently no circuit breaker for operational emergencies.
+
+### Recommendations for Integration
+
+- Use a well-reviewed production USDC asset and verify its issuer/admin model.
+- Use a multisig verifier for higher-value vaults.
+- Treat issuer rotations, admin-key changes, and asset migrations as security-significant events.
+- Ensure the off-chain milestone document represented by `milestone_hash` is clear and durable.
+=======
 1. **USDC Token Address Consistency**: The `usdc_token` address is not stored in the vault data. It is passed as an argument to `release_funds`, `redirect_funds`, and `cancel_vault`. A caller could provide a different token address than the one used at vault creation — always verify the token contract matches the intended asset.
 2. **CEI Pattern Violations**: Some methods perform token transfers before updating internal vault status. While Soroban atomicity mitigates traditional reentrancy risks, stricter Checks-Effects-Interactions ordering is recommended for future versions.
 3. **No Emergency Stops**: There is no circuit breaker or pause mechanism. Funds are strictly bound by `end_timestamp` and authorization rules.
@@ -507,6 +527,7 @@ This documentation assumes:
 - **Commitment Metadata Only**: The `milestone_hash` is stored as opaque bytes for off-chain correlation only. Contract authorization, state transitions, and fund safety do not rely on hash-function collision resistance or post-quantum properties.
 - **Off-chain Verification**: The `milestone_hash` should represent a clear, legally or technically binding document that both creator and verifier agree upon.
 - **Multisig Verifiers**: For high-value vaults, we highly recommend using a multisig address (G-address or contract-based account) as the `verifier`.
+>>>>>>> main
 
 ---
 

@@ -33,7 +33,8 @@ See [USDC_INTEGRATION.md](./USDC_INTEGRATION.md) for detailed documentation.
 
 ## Documentation
 
-For detailed contract documentation, see [vesting.md](vesting.md).
+- Detailed contract behavior: [vesting.md](vesting.md)
+- USDC issuer/admin trust assumptions: [USDC_INTEGRATION.md](USDC_INTEGRATION.md)
 
 ## Backend Integration
 
@@ -393,6 +394,9 @@ Emitted when a milestone is successfully validated.
 
 2. **Non-Custodial**: The contract holds tokens in escrow but never has withdrawal authority beyond the defined destination addresses.
 
+<<<<<<< docs/token-trust-model
+3. **Issuer / Admin Trust**: Production USDC still carries issuer-level governance and compliance risk. Disciplr cannot prevent issuer or admin actions that freeze, pause, blacklist, migrate, or otherwise affect the external asset. See [USDC_INTEGRATION.md](USDC_INTEGRATION.md).
+=======
 ### Reentrancy and Token Callback Assumptions
 
 The Disciplr Vault contract is protected against reentrancy attacks through the following mechanisms:
@@ -427,6 +431,7 @@ If the deployment environment allows arbitrary token contracts, additional secur
 - Implement a reentrancy guard (e.g., `nonreentrant` modifier or explicit state checks before/after external calls)
 - Maintain an allowlist of verified token contract addresses
 - Document the trust assumptions clearly for integrators
+>>>>>>> main
 
 ### Current Limitations (TODOs)
 
