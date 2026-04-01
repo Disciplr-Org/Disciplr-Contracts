@@ -693,6 +693,30 @@ Expected output:
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
+### Coverage (≥ 95 % required)
+
+```bash
+# Install tarpaulin once
+cargo install cargo-tarpaulin --locked
+
+# Run with project config (outputs HTML + LCOV to coverage/)
+cargo tarpaulin --config tarpaulin.toml
+```
+
+The HTML report is written to `coverage/tarpaulin-report.html`.
+
+---
+
+## SDK Version Pin
+
+`soroban-sdk` is pinned to an exact patch version (`=22.0.11`) in `Cargo.toml`.
+
+Rationale: the SDK was pre-1.0 during active development and breaking changes have
+historically landed in minor bumps. An exact pin guarantees that every developer and
+CI run resolves the same crate graph as recorded in `Cargo.lock`, making the audit
+surface deterministic. To upgrade, update both the version string in `Cargo.toml` and
+this note, then re-run `cargo update -p soroban-sdk` and commit the new `Cargo.lock`.
+
 ---
 
 ## Project Layout
