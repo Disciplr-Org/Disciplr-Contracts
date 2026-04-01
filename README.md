@@ -249,9 +249,9 @@ pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault>
 **Parameters:**
 - `vault_id`: ID of the vault to query
 
-**Returns:** `Option<ProductivityVault>` - Vault data if exists, None otherwise
+**Returns:** `Option<ProductivityVault>` - Stored vault data when a record exists for that ID.
 
-**Note:** Current implementation returns `None` as placeholder. Full implementation will read from persistent storage.
+**Behavior:** Created vault records are not deleted during normal contract execution. Completed, failed, and cancelled vaults still return `Some(ProductivityVault)` with their terminal status. `None` therefore means the ID was never assigned (`vault_id >= vault_count()`) or storage was cleared outside the contract's normal lifecycle.
 
 ---
 

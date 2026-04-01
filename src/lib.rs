@@ -129,12 +129,27 @@ impl DisciplrVault {
     ) -> Result<u32, Error> {
         creator.require_auth();
 
-        if amount <= 0 {
+        // Validate amount bounds
+        if amount < MIN_AMOUNT {
+            return Err(Error::InvalidAmount);
+        }
+        if amount > MAX_AMOUNT {
             return Err(Error::InvalidAmount);
         }
 
+        // Validate timestamps
+        let current_time = env.ledger().timestamp();
+        if start_timestamp < current_time {
+            return Err(Error::InvalidTimestamp);
+        }
         if end_timestamp <= start_timestamp {
             return Err(Error::InvalidTimestamps);
+        }
+
+        // Validate duration
+        let duration = end_timestamp - start_timestamp;
+        if duration > MAX_VAULT_DURATION {
+            return Err(Error::DurationTooLong);
         }
 
         // Pull USDC from creator into this contract.
@@ -346,9 +361,25 @@ impl DisciplrVault {
     // get_vault_state
     // -----------------------------------------------------------------------
 
-    /// Return current vault state, or `None` if the vault does not exist.
+    /// Return current vault state, or `None` if no vault record exists for that ID.
+    ///
+    /// This contract does not remove vault records during normal lifecycle transitions.
+    /// Vaults that are completed, failed, or cancelled remain readable and return
+    /// `Some(ProductivityVault)` with their terminal status.
+    ///
+    /// Under normal contract operation, `None` therefore means the vault ID was
+    /// never created. If storage were cleared externally, `None` would also be
+    /// observed, but the contract itself has no path that deletes vault records.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
         env.storage().instance().get(&DataKey::Vault(vault_id))
+    }
+
+    /// Return the number of vault IDs assigned so far.
+    pub fn vault_count(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::VaultCount)
+            .unwrap_or(0)
     }
 }
 
@@ -488,6 +519,45 @@ mod tests {
         assert_eq!(vault.success_destination, setup.success_dest);
         assert_eq!(vault.failure_destination, setup.failure_dest);
         assert_eq!(vault.status, VaultStatus::Active);
+    }
+
+    #[test]
+    fn test_get_vault_state_missing_returns_none() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        assert!(client.get_vault_state(&999).is_none());
+    }
+
+    #[test]
+    fn test_get_vault_state_cancelled_vault_still_returns_some() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let result = client.cancel_vault(&vault_id, &setup.usdc_token);
+        assert!(result);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_get_vault_state_failed_vault_still_returns_some() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let result = client.redirect_funds(&vault_id, &setup.usdc_token);
+        assert!(result);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Failed);
     }
 
     /// Issue #42: milestone_hash passed to create_vault is stored and returned by get_vault_state.
