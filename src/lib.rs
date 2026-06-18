@@ -1,4 +1,3 @@
-<<<<<<< doc/amount-bounds
 #![no_std]
 #![deny(warnings)]
 #![cfg_attr(test, allow(warnings))]
@@ -1575,5 +1574,3 @@ mod test {
         assert_eq!(token_client.balance(&vault_contract), MIN_AMOUNT);
     }
 }
-=======
->>>>>>> main
