@@ -2,7 +2,7 @@
 
 extern crate std;
 
-use disciplr_vault::{DisciplrVault, DisciplrVaultClient, MAX_AMOUNT, MIN_AMOUNT};
+use disciplr_vault::{DisciplrVault, DisciplrVaultClient, Error, MAX_AMOUNT, MIN_AMOUNT};
 use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -28,6 +28,66 @@ fn setup() -> (
     let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
 
     (env, client, usdc_addr, usdc_asset)
+}
+
+fn assert_create_vault_invalid_amount(amount: i128, minted_amount: i128, hash_byte: u8) {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let success = Address::generate(&env);
+    let failure = Address::generate(&env);
+
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    if minted_amount > 0 {
+        usdc_asset.mint(&creator, &minted_amount);
+    }
+
+    let result = client.try_create_vault(
+        &usdc,
+        &creator,
+        &amount,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[hash_byte; 32]),
+        &None,
+        &success,
+        &failure,
+    );
+
+    match result {
+        Err(Ok(Error::InvalidAmount)) => {}
+        other => panic!("expected InvalidAmount for amount {amount}, got {other:?}"),
+    }
+}
+
+fn assert_create_vault_accepts_amount(amount: i128, hash_byte: u8) {
+    let (env, client, usdc, usdc_asset) = setup();
+
+    let creator = Address::generate(&env);
+    let success = Address::generate(&env);
+    let failure = Address::generate(&env);
+
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &amount);
+
+    let id = client.create_vault(
+        &usdc,
+        &creator,
+        &amount,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[hash_byte; 32]),
+        &None,
+        &success,
+        &failure,
+    );
+
+    let vault = client.get_vault_state(&id).unwrap();
+    assert_eq!(vault.amount, amount);
 }
 
 proptest! {
@@ -94,50 +154,30 @@ proptest! {
 
 #[test]
 fn edge_amount_min_succeeds() {
-    let (env, client, usdc, usdc_asset) = setup();
-    let creator = Address::generate(&env);
-    env.ledger().set_timestamp(1_725_000_000u64);
-
-    usdc_asset.mint(&creator, &MIN_AMOUNT);
-
-    let id = client.create_vault(
-        &usdc,
-        &creator,
-        &MIN_AMOUNT,
-        &1_725_000_000u64,
-        &(1_725_000_000u64 + 86_400),
-        &BytesN::from_array(&env, &[9u8; 32]),
-        &None,
-        &Address::generate(&env),
-        &Address::generate(&env),
-    );
-
-    let vault = client.get_vault_state(&id).unwrap();
-    assert_eq!(vault.amount, MIN_AMOUNT);
+    assert_create_vault_accepts_amount(MIN_AMOUNT, 9);
 }
 
 #[test]
 fn edge_amount_max_succeeds() {
-    let (env, client, usdc, usdc_asset) = setup();
-    let creator = Address::generate(&env);
-    env.ledger().set_timestamp(1_725_000_000u64);
+    assert_create_vault_accepts_amount(MAX_AMOUNT, 10);
+}
 
-    usdc_asset.mint(&creator, &MAX_AMOUNT);
+#[test]
+fn edge_amount_just_inside_bounds_succeed() {
+    assert_create_vault_accepts_amount(MIN_AMOUNT + 1, 11);
+    assert_create_vault_accepts_amount(MAX_AMOUNT - 1, 12);
+}
 
-    let id = client.create_vault(
-        &usdc,
-        &creator,
-        &MAX_AMOUNT,
-        &1_725_000_000u64,
-        &(1_725_000_000u64 + 86_400),
-        &BytesN::from_array(&env, &[10u8; 32]),
-        &None,
-        &Address::generate(&env),
-        &Address::generate(&env),
-    );
+#[test]
+fn edge_amount_just_outside_bounds_return_invalid_amount() {
+    assert_create_vault_invalid_amount(MIN_AMOUNT - 1, MIN_AMOUNT, 13);
+    assert_create_vault_invalid_amount(MAX_AMOUNT + 1, MAX_AMOUNT + 1, 14);
+}
 
-    let vault = client.get_vault_state(&id).unwrap();
-    assert_eq!(vault.amount, MAX_AMOUNT);
+#[test]
+fn edge_amount_zero_and_negative_return_invalid_amount() {
+    assert_create_vault_invalid_amount(0, MIN_AMOUNT, 15);
+    assert_create_vault_invalid_amount(-1, MIN_AMOUNT, 16);
 }
 
 #[test]

@@ -44,6 +44,30 @@ Explicit edge vectors included:
 - `start = 0`, `end = 1` with ledger time at `0` (accept)
 - `duration == MAX_VAULT_DURATION` (accept)
 
+## Property Tests for Amount Bounds (Issue #231)
+
+File: `tests/proptest_amounts.rs`
+
+What is validated:
+
+- Randomized valid amounts in `MIN_AMOUNT..=MAX_AMOUNT` succeed when the creator
+  is funded with the exact vault amount.
+- Underfunded valid amounts reject separately from amount-bound failures.
+- Exact boundaries `MIN_AMOUNT` and `MAX_AMOUNT` are accepted.
+- Just-inside neighbors `MIN_AMOUNT + 1` and `MAX_AMOUNT - 1` are accepted.
+- Just-outside neighbors `MIN_AMOUNT - 1` and `MAX_AMOUNT + 1` reject with
+  `Error::InvalidAmount`.
+- Zero and negative amounts reject with `Error::InvalidAmount`.
+
+Strategy design:
+
+- The property test range samples across the full valid interval using
+  `ProptestConfig::with_cases(128)`.
+- Explicit edge tests pin the boundary and neighbor cases so regressions are not
+  dependent on random sampling.
+- Invalid-amount tests mint enough USDC before calling `create_vault`, ensuring
+  the rejection comes from amount validation instead of token balance.
+
 ## Test Coverage: 95%+ Achieved ✅
 
 - **32 comprehensive tests** - All passing
