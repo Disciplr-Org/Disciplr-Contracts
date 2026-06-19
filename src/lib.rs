@@ -254,6 +254,13 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Release vault funds to `success_destination`.
+    ///
+    /// Authorization matrix:
+    /// - Before `end_timestamp`, the milestone must have been validated by the configured verifier
+    ///   or, when no verifier is configured, by the creator.
+    /// - At or after `end_timestamp`, anyone may trigger release because the destination is fixed
+    ///   to the pre-committed `success_destination`.
+    /// - Callers can never redirect release funds to themselves or any supplied address.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -261,8 +268,6 @@ impl DisciplrVault {
             .instance()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
-
-        vault.creator.require_auth();
 
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive); // Or InvalidStatus as appropriate
@@ -510,6 +515,25 @@ mod tests {
                 &self.failure_dest,
             )
         }
+    }
+
+    fn recorded_auth_for(
+        env: &Env,
+        address: &Address,
+        contract_id: &Address,
+        function_name: &str,
+    ) -> bool {
+        env.auths().into_iter().any(|(auth_addr, invocation)| {
+            if &auth_addr != address {
+                return false;
+            }
+            match invocation.function {
+                AuthorizedFunction::Contract((contract, symbol, _)) => {
+                    &contract == contract_id && symbol == Symbol::new(env, function_name)
+                }
+                _ => false,
+            }
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -845,9 +869,42 @@ mod tests {
         assert!(result);
 
         assert_eq!(usdc.balance(&setup.success_dest) - before, setup.amount);
+        assert!(
+            !recorded_auth_for(
+                &setup.env,
+                &setup.creator,
+                &setup.contract_id,
+                "release_funds"
+            ),
+            "post-deadline release must not require creator authorization"
+        );
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
+    fn test_release_funds_after_deadline_uses_fixed_success_destination() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let usdc = setup.usdc_client();
+        let creator_before = usdc.balance(&setup.creator);
+        let success_before = usdc.balance(&setup.success_dest);
+        let failure_before = usdc.balance(&setup.failure_dest);
+
+        assert!(client.release_funds(&vault_id, &setup.usdc_token));
+
+        assert_eq!(
+            usdc.balance(&setup.success_dest) - success_before,
+            setup.amount
+        );
+        assert_eq!(usdc.balance(&setup.creator), creator_before);
+        assert_eq!(usdc.balance(&setup.failure_dest), failure_before);
     }
 
     #[test]
