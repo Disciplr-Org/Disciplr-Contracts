@@ -1,4 +1,3 @@
-<<<<<<< feature/address-validation
 # Disciplr Vault Contract Documentation
 
 ## Overview
@@ -339,10 +338,7 @@ This section outlines the security properties, trust assumptions, and known limi
 4. **Upgradeability**: Consider proxy pattern for contract upgrades
 5. **Comprehensive Tests**: Achieve 95%+ test coverage
 6. **External Audits**: Have security experts review before mainnet deployment
-<<<<<<< doc/amount-bounds
-=======
 7. **Multisig Verifiers**: For high-value vaults, use a multisig address as the `verifier`
->>>>>>> main
 
 ---
 
@@ -507,5 +503,3 @@ disciplr-contracts/
 | 0.1.0 | Initial release with basic vault structure, stubbed implementations |
 | 0.2.0 | Issue #124: reject equal success/failure destinations (`SameDestination` error) |
 | 0.3.0 | Issue #125: reject invalid address role overlaps (`InvalidAddress` error) |
-=======
->>>>>>> main
