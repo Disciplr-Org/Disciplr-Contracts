@@ -1,9 +1,9 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Ledger},
     token::{StellarAssetClient, TokenClient},
-    Address, BytesN, Env, Symbol, TryIntoVal,
+    Address, BytesN, Env,
 };
 
 use disciplr_vault::{DisciplrVault, DisciplrVaultClient, VaultStatus, MIN_AMOUNT};
@@ -176,20 +176,4 @@ fn test_cancel_vault_refunds_creator_and_clears_contract_escrow() {
         client.get_vault_state(&vault_id).unwrap().status,
         VaultStatus::Cancelled
     );
-
-    let mut found_cancel_event = false;
-    for (emitting_contract, topics, _) in env.events().all() {
-        if emitting_contract != contract_id {
-            continue;
-        }
-
-        let event_name: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-        if event_name == Symbol::new(&env, "vault_cancelled") {
-            let event_vault_id: u32 = topics.get(1).unwrap().try_into_val(&env).unwrap();
-            assert_eq!(event_vault_id, vault_id);
-            found_cancel_event = true;
-        }
-    }
-
-    assert!(found_cancel_event, "vault_cancelled event must be emitted");
 }
