@@ -2,22 +2,23 @@ Cancel Vault: Design, Security Notes, and Tests
 
 Summary
 - `cancel_vault` requires the caller to be the vault `creator` and only allows cancellation when the vault `status` is `Active`.
-- On cancel it refunds the vault's stored token balance (simulated) back to the creator by clearing the contract-held balance and emitting a `vault_cancelled` event with the refunded amount.
+- On cancel it transfers the escrowed token amount from the vault contract back to the creator and emits a `vault_cancelled` event.
 
 Behavior & rules
 - Cancellation allowed only when `status == Active` (i.e., before validation/completion).
 - Caller must be the `creator` (enforced via `Address::require_auth`).
-- Refund is performed against a simulated per-vault balance stored in persistent storage under key `("vault_balance", vault_id)`.
+- Refund uses the Soroban token client to transfer `vault.amount` from `env.current_contract_address()` to `vault.creator`.
+- The vault record remains stored and its `status` is set to `Cancelled`.
 
 Security notes
-- Real token transfer: the current implementation simulates token movement by updating contract-owned balance storage. For production, replace this with a real token transfer using the Soroban token client and ensure the contract has allowance/escrowed tokens before creating the vault.
-- Reentrancy: token transfers must be performed using the recommended Soroban token client patterns; consider checks-effects-interactions ordering (we clear the stored balance and set status before emitting events).
+- Real token transfer: `create_vault` escrows funds in the contract token balance, and `cancel_vault` sends those funds back to the creator.
+- Reentrancy: token transfers should continue to use Soroban token client patterns. Keep state updates and event emission explicit when changing this flow.
 - Authorization: `creator.require_auth()` ensures only the vault owner can cancel.
 
 Tests
-- Unit tests cover: successful cancel by creator, unauthorized cancel (panics), and cancel when status is Completed (returns false).
-- A helper `get_vault_balance` exposes the simulated vault balance for assertions in tests.
+- Unit tests cover successful cancel by creator, unauthorized cancel, nonexistent vaults, double cancel, and inactive `Completed` / `Failed` / `Cancelled` vault rejection.
+- The lifecycle integration test asserts the real token refund by checking that the creator receives exactly `vault.amount`, the contract escrow balance returns to its pre-create value, the vault status becomes `Cancelled`, and `vault_cancelled` is emitted.
 
 Next steps
-- Integrate with a real token contract: add a `token_contract: Address` per vault or instance-level token address and call the token `transfer` to move funds.
-- Add more tests that register and interact with a real token contract in test `Env` to assert balances on ledger entries.
+- Keep README, `src/doc.md`, and `contract-interface.json` aligned if the event topic, refund amount, or lifecycle status changes.
+- Preserve the balance-delta assertions when adding new token escrow paths.
