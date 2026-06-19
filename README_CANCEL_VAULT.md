@@ -18,7 +18,6 @@ Security notes
 Tests
 - Unit tests cover successful cancel by creator, unauthorized cancel, nonexistent vaults, double cancel, and inactive `Completed` / `Failed` / `Cancelled` vault rejection.
 - The lifecycle integration test asserts the real token refund by checking that the creator receives exactly `vault.amount`, the contract escrow balance returns to its pre-create value, and the vault status becomes `Cancelled`.
-- The in-contract cancel test asserts that `vault_cancelled` is emitted with the cancelled vault ID.
 
 Next steps
 - Keep README, `src/doc.md`, and `contract-interface.json` aligned if the event topic, refund amount, or lifecycle status changes.
