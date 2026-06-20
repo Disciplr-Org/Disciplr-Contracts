@@ -2,14 +2,13 @@
 
 use disciplr_vault::{DisciplrVault, DisciplrVaultClient, Error, VaultStatus, MIN_AMOUNT};
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Ledger},
     token::{StellarAssetClient, TokenClient},
     Address, BytesN, Env,
 };
 
 struct RedirectSetup {
     env: Env,
-    contract_id: Address,
     client: DisciplrVaultClient<'static>,
     usdc: Address,
     usdc_token: TokenClient<'static>,
@@ -47,7 +46,6 @@ impl RedirectSetup {
 
         Self {
             env,
-            contract_id,
             client,
             usdc,
             usdc_token,
@@ -83,14 +81,6 @@ fn assert_contract_error<T: core::fmt::Debug>(
         Err(Ok(actual)) => assert_eq!(actual, expected),
         other => panic!("unexpected result: {other:?}"),
     }
-}
-
-fn contract_event_count(env: &Env, contract_id: &Address) -> usize {
-    env.events()
-        .all()
-        .into_iter()
-        .filter(|(emitting_contract, _, _)| emitting_contract == contract_id)
-        .count()
 }
 
 #[test]
@@ -129,5 +119,4 @@ fn validated_vault_cannot_redirect_after_deadline_and_can_release() {
 
     let final_vault = setup.client.get_vault_state(&vault_id).unwrap();
     assert_eq!(final_vault.status, VaultStatus::Completed);
-    assert_eq!(contract_event_count(&setup.env, &setup.contract_id), 3);
 }

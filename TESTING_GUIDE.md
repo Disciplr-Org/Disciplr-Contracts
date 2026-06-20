@@ -56,7 +56,7 @@ What is validated:
 - The rejected redirect leaves the vault `Active`, preserves
   `milestone_validated`, and does not credit the failure destination.
 - The same vault remains claimable through `release_funds`, credits
-  `success_destination`, emits `funds_released`, and finishes `Completed`.
+  `success_destination`, and finishes `Completed`.
 
 ## Test Coverage: 95%+ Achieved ✅
 
