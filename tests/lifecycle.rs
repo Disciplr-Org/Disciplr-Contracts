@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Events, Ledger},
     token::{StellarAssetClient, TokenClient},
     Address, BytesN, Env, Symbol, TryIntoVal,
 };
