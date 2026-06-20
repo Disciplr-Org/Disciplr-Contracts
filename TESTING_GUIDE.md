@@ -44,6 +44,23 @@ Explicit edge vectors included:
 - `start = 0`, `end = 1` with ledger time at `0` (accept)
 - `duration == MAX_VAULT_DURATION` (accept)
 
+## Multi-Vault Isolation Coverage (Issue #229)
+
+New file: `tests/multi_vault_isolation.rs`
+
+What is validated:
+
+- `create_vault` assigns strictly increasing IDs across several active vaults.
+- Distinct creators and destinations keep escrow balances isolated.
+- Interleaved terminal outcomes do not bleed state: one vault completes, one fails, and one is cancelled.
+- `vault_count` remains the number of created vaults after lifecycle transitions.
+
+Run it directly with:
+
+```bash
+cargo test multi_vault_lifecycle_outcomes_keep_ids_state_and_balances_isolated
+```
+
 ## Test Coverage: 95%+ Achieved ✅
 
 - **32 comprehensive tests** - All passing
