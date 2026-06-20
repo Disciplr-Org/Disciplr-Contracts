@@ -509,6 +509,11 @@ class ReleaseService {
 
 ## Error Handling
 
+For the contract-level source of truth, see the consolidated
+[Error Codes](../README.md#error-codes) table and
+[Vault Lifecycle](../README.md#vault-lifecycle) state machine in `README.md`.
+Those sections are kept aligned with `src/lib.rs` and `contract-interface.json`.
+
 ### Error Codes to HTTP Status Mapping
 
 | Contract Error | HTTP Status | Error Code | Retryable |
