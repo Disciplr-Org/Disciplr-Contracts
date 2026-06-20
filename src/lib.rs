@@ -845,6 +845,15 @@ mod tests {
         // Success destination received the funds.
         let success_after = usdc.balance(&setup.success_dest);
         assert_eq!(success_after - success_before, setup.amount);
+        assert!(
+            !recorded_auth_for(
+                &setup.env,
+                &setup.creator,
+                &setup.contract_id,
+                "release_funds"
+            ),
+            "validated pre-deadline release must not require creator authorization"
+        );
 
         // Vault status is Completed.
         let vault = client.get_vault_state(&vault_id).unwrap();
