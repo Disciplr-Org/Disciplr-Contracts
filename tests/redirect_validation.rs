@@ -4,7 +4,7 @@ use disciplr_vault::{DisciplrVault, DisciplrVaultClient, Error, VaultStatus, MIN
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token::{StellarAssetClient, TokenClient},
-    Address, BytesN, Env, Symbol, TryIntoVal,
+    Address, BytesN, Env, TryIntoVal,
 };
 
 struct RedirectSetup {
@@ -85,16 +85,25 @@ fn assert_contract_error<T: core::fmt::Debug>(
     }
 }
 
-fn has_contract_event(env: &Env, contract_id: &Address, name: &str, vault_id: u32) -> bool {
-    for (emitting_contract, topics, _) in env.events().all() {
+fn has_contract_amount_event_after(
+    env: &Env,
+    contract_id: &Address,
+    start_index: usize,
+    vault_id: u32,
+    amount: i128,
+) -> bool {
+    for (index, (emitting_contract, topics, data)) in env.events().all().into_iter().enumerate() {
+        if index < start_index {
+            continue;
+        }
         if emitting_contract != contract_id.clone() || topics.len() < 2 {
             continue;
         }
 
-        let event_name: Symbol = topics.get(0).unwrap().try_into_val(env).unwrap();
         let event_vault_id: u32 = topics.get(1).unwrap().try_into_val(env).unwrap();
+        let event_amount: i128 = data.try_into_val(env).unwrap();
 
-        if event_name == Symbol::new(env, name) && event_vault_id == vault_id {
+        if event_vault_id == vault_id && event_amount == amount {
             return true;
         }
     }
@@ -125,6 +134,7 @@ fn validated_vault_cannot_redirect_after_deadline_and_can_release() {
     assert!(vault_after_redirect.milestone_validated);
 
     let success_before = setup.usdc_token.balance(&setup.success_destination);
+    let event_count_before_release = setup.env.events().all().len() as usize;
     assert!(setup.client.release_funds(&vault_id, &setup.usdc));
 
     assert_eq!(
@@ -138,10 +148,11 @@ fn validated_vault_cannot_redirect_after_deadline_and_can_release() {
 
     let final_vault = setup.client.get_vault_state(&vault_id).unwrap();
     assert_eq!(final_vault.status, VaultStatus::Completed);
-    assert!(has_contract_event(
+    assert!(has_contract_amount_event_after(
         &setup.env,
         &setup.contract_id,
-        "funds_released",
-        vault_id
+        event_count_before_release,
+        vault_id,
+        MIN_AMOUNT
     ));
 }
