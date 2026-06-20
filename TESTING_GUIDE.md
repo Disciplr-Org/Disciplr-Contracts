@@ -44,6 +44,20 @@ Explicit edge vectors included:
 - `start = 0`, `end = 1` with ledger time at `0` (accept)
 - `duration == MAX_VAULT_DURATION` (accept)
 
+## Redirect Guard Coverage (Issue #227)
+
+New file: `tests/redirect_validation.rs`
+
+What is validated:
+
+- A vault that was already milestone-validated cannot be redirected to
+  `failure_destination`, even after `end_timestamp`.
+- The rejected redirect returns `Error::NotAuthorized`.
+- The rejected redirect leaves the vault `Active`, preserves
+  `milestone_validated`, and does not credit the failure destination.
+- The same vault remains claimable through `release_funds`, credits
+  `success_destination`, emits `funds_released`, and finishes `Completed`.
+
 ## Test Coverage: 95%+ Achieved ✅
 
 - **32 comprehensive tests** - All passing
