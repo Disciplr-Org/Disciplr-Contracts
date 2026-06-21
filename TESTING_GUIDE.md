@@ -97,6 +97,20 @@ cargo test test_vault_data_integrity
 cargo test test_sequential_operations
 ```
 
+### 5. Cancel Vault Refunds
+
+`tests/lifecycle.rs` covers the real-token refund path for `cancel_vault`.
+
+```bash
+cargo test test_cancel_vault_refunds_creator_and_empties_contract_escrow
+cargo test test_cancel_vault_rejects_completed_failed_and_cancelled_vaults
+```
+
+These tests assert that cancellation transfers exactly `vault.amount` from the
+contract escrow back to the creator, leaves success and failure destinations
+untouched, emits `vault_cancelled`, and rejects cancellation once a vault is in a
+terminal state.
+
 ## Coverage Reports
 
 ### Generate HTML Report
