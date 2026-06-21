@@ -21,30 +21,34 @@ cargo tarpaulin --out Html --out Stdout
 
 ## Property Tests for Timestamp Ordering (Issue #136)
 
-New file: `tests/proptest_timestamps.rs`
+File: `tests/proptest_timestamps.rs`
 
 What is validated:
 
-- Valid ordering property: `start < end` succeeds for randomized inputs.
-- Invalid ordering property: `start >= end` rejects with `Error::InvalidTimestamps`.
-- Duration bound property: `(end - start) > MAX_VAULT_DURATION` rejects with `Error::DurationTooLong`.
+- **Valid ordering property**: `start < end` succeeds for randomized inputs and randomized ledger times.
+- **Invalid ordering property**: `start >= end` rejects with `Error::InvalidTimestamps`.
+- **Duration bound property**: `(end - start) > MAX_VAULT_DURATION` rejects with `Error::DurationTooLong`.
+- **Duration boundary property**: Densely samples the exact boundary where `duration == MAX_VAULT_DURATION` is accepted, and `duration == MAX_VAULT_DURATION + 1` is rejected with `Error::DurationTooLong`.
+- **Past-start rejection property**: Verifies that any vault creation with `start_timestamp < current_time` is rejected with `Error::InvalidTimestamp`.
 
 Strategy design (controlled randomness):
 
-- Valid cases use `(start_offset, duration)` with:
+- **Randomized Ledger Time**: The current time `now` is generated via a randomized strategy `0u64..20_000_000_000u64` to sample different ledger dates.
+- **Valid cases** use `(now, start_offset, duration)` with:
   - `start = now + start_offset`
   - `duration in 1..=MAX_VAULT_DURATION`
   - `end = start + duration`
-- Invalid ordering uses `end = start.saturating_sub(backoff)` to guarantee `end <= start`.
-- Overflow risk is avoided by bounded ranges for `start_offset` and `duration`.
+- **Invalid ordering** uses `end = start.saturating_sub(backoff)` to guarantee `end <= start`.
+- **Past-start cases** use `start = now - past_offset` (where `past_offset >= 1` and `now >= 1_000_000`) to guarantee `start < now`.
+- **Overflow risk** is entirely avoided by setting upper limits on `now` and `start_offset` such that `now + start_offset + duration` is mathematically guaranteed to stay well below `u64::MAX`.
 
 Explicit edge vectors included:
 
-- `start == end` (reject)
+- `start == end` (reject with `Error::InvalidTimestamps`)
 - `start = 0`, `end = 1` with ledger time at `0` (accept)
 - `duration == MAX_VAULT_DURATION` (accept)
+- `start == now` (accept)
 
-## Test Coverage: 95%+ Achieved ✅
 
 - **32 comprehensive tests** - All passing
 - **92.16% line coverage** (47/51 lines)
