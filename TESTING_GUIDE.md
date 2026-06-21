@@ -97,6 +97,20 @@ cargo test test_vault_data_integrity
 cargo test test_sequential_operations
 ```
 
+### 5. Multi-Vault Isolation
+
+`tests/multi_vault_isolation.rs` verifies that multiple vaults can move through
+different terminal outcomes without state or balance cross-contamination:
+
+```bash
+cargo test test_multi_vault_lifecycle_isolation_for_ids_states_and_balances
+```
+
+The scenario creates three vaults with distinct creators and destinations, then
+drives them to `Completed`, `Failed`, and `Cancelled`. It asserts sequential
+vault IDs, `vault_count`, per-vault terminal states, and exact token balances
+for each success, failure, and creator destination.
+
 ## Coverage Reports
 
 ### Generate HTML Report
