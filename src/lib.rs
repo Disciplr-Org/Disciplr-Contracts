@@ -108,6 +108,22 @@ pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC
 /// otherwise returns `Error::InvalidAmount`.
 pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10M USDC
 
+// ── TTL constants ────────────────────────────────────────────────────────
+/// Ledger entries for per-vault persistent storage are bumped to this TTL
+/// on every read and write so long-lived vaults survive state expiry.
+/// ~90 days at ~5s ledger close (90 × 24 × 3600 / 5 ≈ 1_555_200).
+const VAULT_TTL_LEDGERS: u32 = 1_555_200;
+
+/// Extend persistent TTL for a vault entry. No-op when TTL is already above
+/// the threshold (repeated calls have zero marginal Soroban cost).
+fn bump_vault_ttl(env: &Env, vault_id: u32) {
+    env.storage().persistent().extend_ttl(
+        &DataKey::Vault(vault_id),
+        VAULT_TTL_LEDGERS,
+        VAULT_TTL_LEDGERS,
+    );
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -197,8 +213,9 @@ impl DisciplrVault {
         };
 
         env.storage()
-            .instance()
+            .persistent()
             .set(&DataKey::Vault(vault_id), &vault);
+        bump_vault_ttl(&env, vault_id);
 
         env.events().publish(
             (Symbol::new(&env, "vault_created"), vault_id),
@@ -221,9 +238,10 @@ impl DisciplrVault {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
-            .instance()
+            .persistent()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
+        bump_vault_ttl(&env, vault_id);
 
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive);
@@ -242,7 +260,8 @@ impl DisciplrVault {
         }
 
         vault.milestone_validated = true;
-        env.storage().instance().set(&vault_key, &vault);
+        env.storage().persistent().set(&vault_key, &vault);
+        bump_vault_ttl(&env, vault_id);
 
         env.events()
             .publish((Symbol::new(&env, "milestone_validated"), vault_id), ());
@@ -258,9 +277,10 @@ impl DisciplrVault {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
-            .instance()
+            .persistent()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
+        bump_vault_ttl(&env, vault_id);
 
         vault.creator.require_auth();
 
@@ -285,7 +305,8 @@ impl DisciplrVault {
         );
 
         vault.status = VaultStatus::Completed;
-        env.storage().instance().set(&vault_key, &vault);
+        env.storage().persistent().set(&vault_key, &vault);
+        bump_vault_ttl(&env, vault_id);
 
         env.events().publish(
             (Symbol::new(&env, "funds_released"), vault_id),
@@ -303,9 +324,10 @@ impl DisciplrVault {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
-            .instance()
+            .persistent()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
+        bump_vault_ttl(&env, vault_id);
 
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive);
@@ -328,7 +350,8 @@ impl DisciplrVault {
         );
 
         vault.status = VaultStatus::Failed;
-        env.storage().instance().set(&vault_key, &vault);
+        env.storage().persistent().set(&vault_key, &vault);
+        bump_vault_ttl(&env, vault_id);
 
         env.events().publish(
             (Symbol::new(&env, "funds_redirected"), vault_id),
@@ -346,9 +369,10 @@ impl DisciplrVault {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
-            .instance()
+            .persistent()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
+        bump_vault_ttl(&env, vault_id);
 
         vault.creator.require_auth();
 
@@ -364,7 +388,8 @@ impl DisciplrVault {
         );
 
         vault.status = VaultStatus::Cancelled;
-        env.storage().instance().set(&vault_key, &vault);
+        env.storage().persistent().set(&vault_key, &vault);
+        bump_vault_ttl(&env, vault_id);
 
         env.events()
             .publish((Symbol::new(&env, "vault_cancelled"), vault_id), ());
@@ -385,7 +410,8 @@ impl DisciplrVault {
     /// never created. If storage were cleared externally, `None` would also be
     /// observed, but the contract itself has no path that deletes vault records.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
-        env.storage().instance().get(&DataKey::Vault(vault_id))
+        bump_vault_ttl(&env, vault_id);
+        env.storage().persistent().get(&DataKey::Vault(vault_id))
     }
 
     /// Return the number of vault IDs assigned so far.
