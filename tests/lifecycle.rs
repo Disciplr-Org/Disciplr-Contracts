@@ -6,7 +6,7 @@ use soroban_sdk::{
     Address, BytesN, Env,
 };
 
-use disciplr_vault::{DisciplrVault, DisciplrVaultClient, VaultStatus, MIN_AMOUNT};
+use disciplr_vault::{DisciplrVault, DisciplrVaultClient, Error, VaultStatus, MIN_AMOUNT};
 
 fn setup() -> (
     Env,
@@ -28,6 +28,16 @@ fn setup() -> (
     let usdc_token_client = TokenClient::new(&env, &usdc_addr);
 
     (env, client, usdc_addr, usdc_asset, usdc_token_client)
+}
+
+fn assert_contract_error<T: core::fmt::Debug>(
+    result: Result<T, Result<Error, soroban_sdk::InvokeError>>,
+    expected: Error,
+) {
+    match result {
+        Err(Ok(actual)) => assert_eq!(actual, expected),
+        other => panic!("unexpected result: {other:?}"),
+    }
 }
 
 #[test]
@@ -115,4 +125,56 @@ fn test_full_lifecycle_failure_redirection() {
     let final_state = client.get_vault_state(&vault_id).unwrap();
     assert_eq!(final_state.status, VaultStatus::Failed);
     assert_eq!(usdc_token.balance(&failure_dest), MIN_AMOUNT);
+}
+
+#[test]
+fn test_validated_vault_cannot_redirect_after_deadline_and_can_release() {
+    let (env, client, usdc, usdc_asset, usdc_token) = setup();
+
+    let creator = Address::generate(&env);
+    let verifier = Address::generate(&env);
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let now = 1_700_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &BytesN::from_array(&env, &[2u8; 32]),
+        &Some(verifier),
+        &success_dest,
+        &failure_dest,
+    );
+
+    env.ledger().set_timestamp(now + 3_600);
+    assert!(client.validate_milestone(&vault_id));
+    assert!(
+        client
+            .get_vault_state(&vault_id)
+            .unwrap()
+            .milestone_validated
+    );
+
+    env.ledger().set_timestamp(now + 86_401);
+    assert_contract_error(
+        client.try_redirect_funds(&vault_id, &usdc),
+        Error::NotAuthorized,
+    );
+    assert_eq!(usdc_token.balance(&failure_dest), 0);
+    assert_eq!(
+        client.get_vault_state(&vault_id).unwrap().status,
+        VaultStatus::Active
+    );
+
+    assert!(client.release_funds(&vault_id, &usdc));
+    let final_state = client.get_vault_state(&vault_id).unwrap();
+    assert_eq!(final_state.status, VaultStatus::Completed);
+    assert_eq!(usdc_token.balance(&success_dest), MIN_AMOUNT);
+    assert_eq!(usdc_token.balance(&failure_dest), 0);
 }

@@ -97,6 +97,20 @@ cargo test test_vault_data_integrity
 cargo test test_sequential_operations
 ```
 
+### 5. Redirect Guards
+
+`tests/lifecycle.rs` covers the security invariant that a validated milestone
+cannot be redirected to `failure_destination`, even after the deadline:
+
+```bash
+cargo test test_validated_vault_cannot_redirect_after_deadline_and_can_release
+```
+
+The test creates a vault, validates the milestone, advances beyond
+`end_timestamp`, asserts `redirect_funds` returns `Error::NotAuthorized`, proves
+the failure destination receives no funds, and then verifies `release_funds`
+still pays the success destination.
+
 ## Coverage Reports
 
 ### Generate HTML Report
