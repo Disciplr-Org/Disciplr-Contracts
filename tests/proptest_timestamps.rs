@@ -47,7 +47,8 @@ proptest! {
 
     #[test]
     fn prop_create_vault_accepts_valid_ordering(
-        start_offset in 0u64..1_000_000,
+        now in 0u64..20_000_000_000u64,
+        start_offset in 0u64..1_000_000_000,
         duration in 1u64..=MAX_VAULT_DURATION,
         amount in MIN_AMOUNT..=MAX_AMOUNT,
     ) {
@@ -58,10 +59,9 @@ proptest! {
         let failure = Address::generate(&env);
         let milestone = BytesN::from_array(&env, &[0u8; 32]);
 
-        let now = 1_725_000_000u64;
         env.ledger().set_timestamp(now);
 
-        // Overflow-safe by construction: start <= now + 1_000_000 and duration <= MAX_VAULT_DURATION.
+        // Bounded to avoid u64 overflow: now <= 20_000_000_000, start_offset <= 1_000_000_000, duration <= MAX_VAULT_DURATION.
         let start = now + start_offset;
         let end = start + duration;
 
@@ -88,6 +88,7 @@ proptest! {
 
     #[test]
     fn prop_create_vault_rejects_start_gte_end(
+        now in 0u64..20_000_000_000u64,
         start_offset in 0u64..1_000_000,
         backoff in 0u64..1_000_000,
         amount in MIN_AMOUNT..=MAX_AMOUNT,
@@ -98,7 +99,6 @@ proptest! {
         let success = Address::generate(&env);
         let failure = Address::generate(&env);
 
-        let now = 1_725_000_000u64;
         env.ledger().set_timestamp(now);
 
         let start = now + start_offset;
@@ -123,6 +123,7 @@ proptest! {
 
     #[test]
     fn prop_create_vault_rejects_duration_above_max(
+        now in 0u64..20_000_000_000u64,
         start_offset in 0u64..10_000,
         extra in 1u64..10_000,
         amount in MIN_AMOUNT..=MAX_AMOUNT,
@@ -133,7 +134,6 @@ proptest! {
         let success = Address::generate(&env);
         let failure = Address::generate(&env);
 
-        let now = 1_725_000_000u64;
         env.ledger().set_timestamp(now);
 
         let start = now + start_offset;
@@ -155,7 +155,130 @@ proptest! {
 
         assert_contract_error(result, Error::DurationTooLong);
     }
+
+    #[test]
+    fn prop_duration_boundary(
+        now in 0u64..20_000_000_000u64,
+        start_offset in 0u64..1_000_000,
+        amount in MIN_AMOUNT..=MAX_AMOUNT,
+    ) {
+        let (env, client, usdc, usdc_asset) = setup();
+
+        let creator = Address::generate(&env);
+        let success = Address::generate(&env);
+        let failure = Address::generate(&env);
+        let milestone = BytesN::from_array(&env, &[3u8; 32]);
+
+        env.ledger().set_timestamp(now);
+
+        let start = now + start_offset;
+
+        // 1. Assert duration == MAX_VAULT_DURATION accepts
+        {
+            let end_valid = start + MAX_VAULT_DURATION;
+            usdc_asset.mint(&creator, &amount);
+            let vault_id = client.create_vault(
+                &usdc,
+                &creator,
+                &amount,
+                &start,
+                &end_valid,
+                &milestone,
+                &None,
+                &success,
+                &failure,
+            );
+            let vault = client.get_vault_state(&vault_id).expect("vault should exist");
+            prop_assert_eq!(vault.start_timestamp, start);
+            prop_assert_eq!(vault.end_timestamp, end_valid);
+            prop_assert_eq!(vault.end_timestamp - vault.start_timestamp, MAX_VAULT_DURATION);
+        }
+
+        // 2. Assert duration == MAX_VAULT_DURATION + 1 rejects with DurationTooLong
+        {
+            let end_invalid = start + MAX_VAULT_DURATION + 1;
+            usdc_asset.mint(&creator, &amount);
+            let result = client.try_create_vault(
+                &usdc,
+                &creator,
+                &amount,
+                &start,
+                &end_invalid,
+                &milestone,
+                &None,
+                &success,
+                &failure,
+            );
+            assert_contract_error(result, Error::DurationTooLong);
+        }
+    }
+
+    #[test]
+    fn prop_past_start_rejected(
+        now in 1_000_000u64..20_000_000_000u64,
+        past_offset in 1u64..1_000_000,
+        duration in 1u64..=MAX_VAULT_DURATION,
+        amount in MIN_AMOUNT..=MAX_AMOUNT,
+    ) {
+        let (env, client, usdc, usdc_asset) = setup();
+
+        let creator = Address::generate(&env);
+        let success = Address::generate(&env);
+        let failure = Address::generate(&env);
+        let milestone = BytesN::from_array(&env, &[4u8; 32]);
+
+        env.ledger().set_timestamp(now);
+
+        let start = now - past_offset;
+        let end = start + duration;
+
+        usdc_asset.mint(&creator, &amount);
+
+        let result = client.try_create_vault(
+            &usdc,
+            &creator,
+            &amount,
+            &start,
+            &end,
+            &milestone,
+            &None,
+            &success,
+            &failure,
+        );
+
+        assert_contract_error(result, Error::InvalidTimestamp);
+    }
 }
+
+#[test]
+fn edge_start_eq_now_succeeds() {
+    let (env, client, usdc, usdc_asset) = setup();
+    let creator = Address::generate(&env);
+    let now = 1_725_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let start = now;
+    let end = start + 1;
+
+    let id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &start,
+        &end,
+        &BytesN::from_array(&env, &[6u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    let vault = client.get_vault_state(&id).unwrap();
+    assert_eq!(vault.start_timestamp, start);
+    assert_eq!(vault.end_timestamp, end);
+}
+
 
 #[test]
 fn edge_start_eq_end_rejected() {
