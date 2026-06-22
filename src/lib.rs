@@ -4,7 +4,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -37,6 +37,8 @@ pub enum Error {
     InvalidTimestamps = 8,
     /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
     DurationTooLong = 9,
+    /// Requested pagination window exceeds the maximum read limit.
+    LimitTooLarge = 10,
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +109,9 @@ pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC
 /// Enforced in `create_vault`: `amount` must be ≤ `MAX_AMOUNT`,
 /// otherwise returns `Error::InvalidAmount`.
 pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10M USDC
+
+/// Maximum records returned by `list_vaults` in a single read-only call.
+pub const MAX_LIST_VAULTS_LIMIT: u32 = 100;
 
 #[contracttype]
 #[derive(Clone)]
@@ -386,6 +391,35 @@ impl DisciplrVault {
     /// observed, but the contract itself has no path that deletes vault records.
     pub fn get_vault_state(env: Env, vault_id: u32) -> Option<ProductivityVault> {
         env.storage().instance().get(&DataKey::Vault(vault_id))
+    }
+
+    /// Return a bounded page of existing vault records starting at `start_id`.
+    ///
+    /// The returned vector contains `(vault_id, ProductivityVault)` pairs for
+    /// existing records in `[start_id, start_id + limit)`. Missing IDs are
+    /// skipped and `limit` must be at most `MAX_LIST_VAULTS_LIMIT`.
+    pub fn list_vaults(
+        env: Env,
+        start_id: u32,
+        limit: u32,
+    ) -> Result<Vec<(u32, ProductivityVault)>, Error> {
+        if limit > MAX_LIST_VAULTS_LIMIT {
+            return Err(Error::LimitTooLarge);
+        }
+
+        let vault_count = Self::vault_count(env.clone());
+        let end_id = start_id.saturating_add(limit).min(vault_count);
+        let mut vaults = Vec::new(&env);
+        let mut id = start_id;
+
+        while id < end_id {
+            if let Some(vault) = env.storage().instance().get(&DataKey::Vault(id)) {
+                vaults.push_back((id, vault));
+            }
+            id += 1;
+        }
+
+        Ok(vaults)
     }
 
     /// Return the number of vault IDs assigned so far.

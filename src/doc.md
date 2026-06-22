@@ -29,6 +29,7 @@ This guide provides comprehensive documentation for backend developers integrati
 | `redirect_funds` | POST | `/api/v1/vaults/{vault_id}/redirect` | Redirect funds to failure destination |
 | `cancel_vault` | POST | `/api/v1/vaults/{vault_id}/cancel` | Cancel vault and return funds |
 | `get_vault_state` | GET | `/api/v1/vaults/{vault_id}` | Query vault state |
+| `list_vaults` | GET | `/api/v1/vaults?start_id={start_id}&limit={limit}` | List a bounded page of vaults |
 | `vault_count` | GET | `/api/v1/vaults/count` | Get total vault count |
 
 ---
