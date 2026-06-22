@@ -2,7 +2,7 @@
 
 extern crate std;
 
-use disciplr_vault::{DisciplrVault, DisciplrVaultClient, MAX_AMOUNT, MIN_AMOUNT};
+use disciplr_vault::{DisciplrVault, DisciplrVaultClient, Error, MAX_AMOUNT, MIN_AMOUNT};
 use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -30,11 +30,21 @@ fn setup() -> (
     (env, client, usdc_addr, usdc_asset)
 }
 
+fn assert_contract_error<T: core::fmt::Debug>(
+    result: Result<T, Result<Error, soroban_sdk::InvokeError>>,
+    expected: Error,
+) {
+    match result {
+        Err(Ok(actual)) => assert_eq!(actual, expected),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(128))]
 
     #[test]
-    fn prop_amount_in_range_with_funding_succeeds(amount in MIN_AMOUNT..=MAX_AMOUNT) {
+    fn prop_amount_in_range_with_funding_succeeds(amount in (MIN_AMOUNT + 1)..MAX_AMOUNT) {
         let (env, client, usdc, usdc_asset) = setup();
 
         let creator = Address::generate(&env);
@@ -90,6 +100,28 @@ proptest! {
 
         prop_assert!(result.is_err());
     }
+}
+
+fn assert_create_with_amount_returns_invalid_amount(amount: i128, minted: i128) {
+    let (env, client, usdc, usdc_asset) = setup();
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_725_000_000u64);
+
+    usdc_asset.mint(&creator, &minted);
+
+    let result = client.try_create_vault(
+        &usdc,
+        &creator,
+        &amount,
+        &1_725_000_000u64,
+        &(1_725_000_000u64 + 86_400),
+        &BytesN::from_array(&env, &[12u8; 32]),
+        &None,
+        &Address::generate(&env),
+        &Address::generate(&env),
+    );
+
+    assert_contract_error(result, Error::InvalidAmount);
 }
 
 #[test]
@@ -161,4 +193,24 @@ fn edge_amount_max_underfunded_errors() {
     );
 
     assert!(result.is_err());
+}
+
+#[test]
+fn edge_amount_min_minus_one_returns_invalid_amount() {
+    assert_create_with_amount_returns_invalid_amount(MIN_AMOUNT - 1, MAX_AMOUNT);
+}
+
+#[test]
+fn edge_amount_max_plus_one_returns_invalid_amount() {
+    assert_create_with_amount_returns_invalid_amount(MAX_AMOUNT + 1, MAX_AMOUNT + 1);
+}
+
+#[test]
+fn edge_amount_zero_returns_invalid_amount() {
+    assert_create_with_amount_returns_invalid_amount(0, MAX_AMOUNT);
+}
+
+#[test]
+fn edge_amount_negative_returns_invalid_amount() {
+    assert_create_with_amount_returns_invalid_amount(-1, MAX_AMOUNT);
 }

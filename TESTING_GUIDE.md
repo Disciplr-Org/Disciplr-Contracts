@@ -49,6 +49,25 @@ Explicit edge vectors included:
 - `duration == MAX_VAULT_DURATION` (accept)
 - `start == now` (accept)
 
+## Property Tests for Amount Bounds (Issue #231)
+
+File: `tests/proptest_amounts.rs`
+
+What is validated:
+
+- **Valid interior property**: randomized amounts strictly inside `(MIN_AMOUNT, MAX_AMOUNT)` succeed when the creator is fully funded.
+- **Boundary acceptance**: exact `MIN_AMOUNT` and exact `MAX_AMOUNT` are accepted and persisted on the vault.
+- **Neighbour rejection**: `MIN_AMOUNT - 1` and `MAX_AMOUNT + 1` reject with `Error::InvalidAmount`.
+- **Zero/negative rejection**: `0` and negative amounts reject with `Error::InvalidAmount`.
+- **Funding separation**: invalid amount tests mint enough USDC first so failures come from amount validation, not token balance checks.
+- **Underfunding guard**: valid in-range amounts still fail when the creator balance is short, proving the amount tests do not mask transfer failures.
+
+Strategy design:
+
+- The randomized success property samples the valid interior only; exact endpoints are kept as explicit deterministic edge tests.
+- The just-outside, zero, and negative edge vectors assert the exact contract error.
+- The invalid amount tests mint at least the requested amount when possible, or `MAX_AMOUNT` for low/negative values, to isolate `Error::InvalidAmount`.
+
 
 - **32 comprehensive tests** - All passing
 - **92.16% line coverage** (47/51 lines)
