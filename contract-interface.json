@@ -38,7 +38,8 @@
         "InvalidStatus": 6,
         "InvalidAmount": 7,
         "InvalidTimestamps": 8,
-        "DurationTooLong": 9
+        "DurationTooLong": 9,
+        "ConflictingAddresses": 10
       }
     }
   },

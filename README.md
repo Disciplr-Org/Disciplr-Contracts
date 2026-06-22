@@ -40,6 +40,7 @@ and the backend mapping in [`src/doc.md`](src/doc.md#error-handling).
 | `7` | `InvalidAmount` | `create_vault` | `amount` is below `MIN_AMOUNT` or above `MAX_AMOUNT`. This covers zero, negative, and over-maximum amounts. |
 | `8` | `InvalidTimestamps` | `create_vault` | `end_timestamp` is less than or equal to `start_timestamp`. |
 | `9` | `DurationTooLong` | `create_vault` | `end_timestamp - start_timestamp` exceeds `MAX_VAULT_DURATION` (365 days). |
+| `10` | `ConflictingAddresses` | `create_vault` | A configured verifier is also the success or failure payout destination. See [`docs/ADDRESS_CONSTRAINTS.md`](docs/ADDRESS_CONSTRAINTS.md). |
 
 ## Vault Lifecycle
 
@@ -60,7 +61,7 @@ stateDiagram-v2
 
 | From | To | Entrypoint | Preconditions | Resulting event |
 | --- | --- | --- | --- | --- |
-| None | `Active` | `create_vault` | Creator authorizes; amount and timestamps are valid; duration is within the maximum; token transfer into the contract succeeds. | `vault_created` |
+| None | `Active` | `create_vault` | Creator authorizes; amount and timestamps are valid; verifier/destination addresses satisfy the address matrix; duration is within the maximum; token transfer into the contract succeeds. | `vault_created` |
 | `Active` | `Active` | `validate_milestone` | Vault exists, is active, caller is the configured verifier or creator fallback, and ledger time is before `end_timestamp`. | `milestone_validated` |
 | `Active` | `Completed` | `release_funds` | Creator authorizes; vault is active; milestone is validated or the deadline has been reached. | `funds_released` |
 | `Active` | `Failed` | `redirect_funds` | Vault is active; ledger time is strictly greater than `end_timestamp`; milestone is not validated. | `funds_redirected` |

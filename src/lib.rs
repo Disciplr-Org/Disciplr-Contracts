@@ -37,6 +37,8 @@ pub enum Error {
     InvalidTimestamps = 8,
     /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
     DurationTooLong = 9,
+    /// Verifier cannot also be a success or failure payout destination.
+    ConflictingAddresses = 10,
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +131,8 @@ impl DisciplrVault {
     /// # Validation Rules
     /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - `verifier`, when present, must differ from `success_destination` and `failure_destination`;
+    ///   otherwise returns `Error::ConflictingAddresses`.
     ///
     /// # Prerequisites
     /// Creator must have sufficient USDC balance and authorize the transaction.
@@ -152,6 +156,12 @@ impl DisciplrVault {
         }
         if amount > MAX_AMOUNT {
             return Err(Error::InvalidAmount);
+        }
+
+        if let Some(ref verifier_addr) = verifier {
+            if *verifier_addr == success_destination || *verifier_addr == failure_destination {
+                return Err(Error::ConflictingAddresses);
+            }
         }
 
         // Validate timestamps
@@ -644,6 +654,93 @@ mod tests {
             result.is_err(),
             "create_vault with start >= end should return InvalidTimestamps"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_create_vault_verifier_equals_success_destination_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &Some(setup.success_dest.clone()),
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_create_vault_verifier_equals_failure_destination_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &Some(setup.failure_dest.clone()),
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+    }
+
+    #[test]
+    fn test_create_vault_verifier_same_as_creator_allowed() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &Some(setup.creator.clone()),
+            &setup.success_dest,
+            &setup.failure_dest,
+        );
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.verifier, Some(setup.creator));
+        assert_eq!(vault.status, VaultStatus::Active);
+    }
+
+    #[test]
+    fn test_create_vault_no_verifier_destination_overlap_allowed() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = client.create_vault(
+            &setup.usdc_token,
+            &setup.creator,
+            &setup.amount,
+            &setup.start_timestamp,
+            &setup.end_timestamp,
+            &setup.milestone_hash(),
+            &None,
+            &setup.success_dest,
+            &setup.success_dest,
+        );
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.verifier, None);
+        assert_eq!(vault.success_destination, setup.success_dest);
+        assert_eq!(vault.failure_destination, setup.success_dest);
     }
 
     #[test]
