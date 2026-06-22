@@ -50,6 +50,7 @@ proptest! {
         now in 0u64..20_000_000_000u64,
         start_offset in 0u64..1_000_000_000,
         duration in 1u64..=MAX_VAULT_DURATION,
+        grace_period in 0u64..=MAX_VAULT_DURATION,
         amount in MIN_AMOUNT..=MAX_AMOUNT,
     ) {
         let (env, client, usdc, usdc_asset) = setup();
@@ -75,6 +76,7 @@ proptest! {
             &end,
             &milestone,
             &None,
+            &grace_period,
             &success,
             &failure,
         );
@@ -83,6 +85,7 @@ proptest! {
         prop_assert_eq!(vault.start_timestamp, start);
         prop_assert_eq!(vault.end_timestamp, end);
         prop_assert_eq!(vault.end_timestamp - vault.start_timestamp, duration);
+        prop_assert_eq!(vault.grace_period, grace_period);
         prop_assert_eq!(vault.amount, amount);
     }
 
@@ -114,6 +117,7 @@ proptest! {
             &end,
             &BytesN::from_array(&env, &[1u8; 32]),
             &None,
+            &0,
             &success,
             &failure,
         );
@@ -149,6 +153,45 @@ proptest! {
             &end,
             &BytesN::from_array(&env, &[2u8; 32]),
             &None,
+            &0,
+            &success,
+            &failure,
+        );
+
+        assert_contract_error(result, Error::DurationTooLong);
+    }
+
+    #[test]
+    fn prop_create_vault_rejects_grace_above_max(
+        now in 0u64..20_000_000_000u64,
+        start_offset in 0u64..10_000,
+        duration in 1u64..=MAX_VAULT_DURATION,
+        extra_grace in 1u64..10_000,
+        amount in MIN_AMOUNT..=MAX_AMOUNT,
+    ) {
+        let (env, client, usdc, usdc_asset) = setup();
+
+        let creator = Address::generate(&env);
+        let success = Address::generate(&env);
+        let failure = Address::generate(&env);
+
+        env.ledger().set_timestamp(now);
+
+        let start = now + start_offset;
+        let end = start + duration;
+        let grace_period = MAX_VAULT_DURATION + extra_grace;
+
+        usdc_asset.mint(&creator, &amount);
+
+        let result = client.try_create_vault(
+            &usdc,
+            &creator,
+            &amount,
+            &start,
+            &end,
+            &BytesN::from_array(&env, &[7u8; 32]),
+            &None,
+            &grace_period,
             &success,
             &failure,
         );
@@ -185,6 +228,7 @@ proptest! {
                 &end_valid,
                 &milestone,
                 &None,
+                &0,
                 &success,
                 &failure,
             );
@@ -206,6 +250,7 @@ proptest! {
                 &end_invalid,
                 &milestone,
                 &None,
+                &0,
                 &success,
                 &failure,
             );
@@ -242,6 +287,7 @@ proptest! {
             &end,
             &milestone,
             &None,
+            &0,
             &success,
             &failure,
         );
@@ -270,6 +316,7 @@ fn edge_start_eq_now_succeeds() {
         &end,
         &BytesN::from_array(&env, &[6u8; 32]),
         &None,
+        &0,
         &Address::generate(&env),
         &Address::generate(&env),
     );
@@ -278,7 +325,6 @@ fn edge_start_eq_now_succeeds() {
     assert_eq!(vault.start_timestamp, start);
     assert_eq!(vault.end_timestamp, end);
 }
-
 
 #[test]
 fn edge_start_eq_end_rejected() {
@@ -297,6 +343,7 @@ fn edge_start_eq_end_rejected() {
         &now,
         &BytesN::from_array(&env, &[3u8; 32]),
         &None,
+        &0,
         &Address::generate(&env),
         &Address::generate(&env),
     );
@@ -320,6 +367,7 @@ fn edge_zero_start_with_current_zero_succeeds() {
         &1,
         &BytesN::from_array(&env, &[4u8; 32]),
         &None,
+        &0,
         &Address::generate(&env),
         &Address::generate(&env),
     );
@@ -349,6 +397,7 @@ fn edge_max_duration_boundary_succeeds() {
         &end,
         &BytesN::from_array(&env, &[5u8; 32]),
         &None,
+        &0,
         &Address::generate(&env),
         &Address::generate(&env),
     );

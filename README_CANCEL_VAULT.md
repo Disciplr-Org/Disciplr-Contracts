@@ -8,6 +8,9 @@ Behavior & rules
 - Cancellation allowed only when `status == Active` (i.e., before validation/completion).
 - Caller must be the `creator` (enforced via `Address::require_auth`).
 - Refund is performed against a simulated per-vault balance stored in persistent storage under key `("vault_balance", vault_id)`.
+- Cancellation is independent of redirect grace periods: an active vault can still be cancelled by
+  its creator before another terminal transition occurs. Once `redirect_funds` succeeds after
+  `end_timestamp + grace_period`, cancellation is rejected because the vault is `Failed`.
 
 Security notes
 - Real token transfer: the current implementation simulates token movement by updating contract-owned balance storage. For production, replace this with a real token transfer using the Soroban token client and ensure the contract has allowance/escrowed tokens before creating the vault.

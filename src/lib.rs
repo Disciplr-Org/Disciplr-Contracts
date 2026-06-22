@@ -64,6 +64,8 @@ pub struct ProductivityVault {
     pub start_timestamp: u64,
     /// Ledger timestamp after which deadline-based release is allowed.
     pub end_timestamp: u64,
+    /// Additional seconds after `end_timestamp` before redirection is allowed.
+    pub grace_period: u64,
     /// Hash representing the milestone the creator commits to.
     pub milestone_hash: BytesN<32>,
     /// Optional designated verifier. When `Some(addr)`, only that address may call `validate_milestone`.
@@ -129,6 +131,7 @@ impl DisciplrVault {
     /// # Validation Rules
     /// - `amount` must be positive; otherwise returns `Error::InvalidAmount`.
     /// - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`.
+    /// - `grace_period` must be no greater than `MAX_VAULT_DURATION`; otherwise returns `Error::DurationTooLong`.
     ///
     /// # Prerequisites
     /// Creator must have sufficient USDC balance and authorize the transaction.
@@ -141,6 +144,7 @@ impl DisciplrVault {
         end_timestamp: u64,
         milestone_hash: BytesN<32>,
         verifier: Option<Address>,
+        grace_period: u64,
         success_destination: Address,
         failure_destination: Address,
     ) -> Result<u32, Error> {
@@ -168,6 +172,9 @@ impl DisciplrVault {
         if duration > MAX_VAULT_DURATION {
             return Err(Error::DurationTooLong);
         }
+        if grace_period > MAX_VAULT_DURATION {
+            return Err(Error::DurationTooLong);
+        }
 
         // Pull USDC from creator into this contract.
         let token_client = token::Client::new(&env, &usdc_token);
@@ -188,6 +195,7 @@ impl DisciplrVault {
             amount,
             start_timestamp,
             end_timestamp,
+            grace_period,
             milestone_hash,
             verifier,
             success_destination,
@@ -298,7 +306,10 @@ impl DisciplrVault {
     // redirect_funds
     // -----------------------------------------------------------------------
 
-    /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    /// Redirect funds to `failure_destination` after the deadline and grace period.
+    ///
+    /// Redirection is allowed only when `now > end_timestamp + grace_period`.
+    /// The addition is checked so overflow rejects with `Error::InvalidTimestamp`.
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -311,7 +322,11 @@ impl DisciplrVault {
             return Err(Error::VaultNotActive);
         }
 
-        if env.ledger().timestamp() <= vault.end_timestamp {
+        let redirect_after = vault
+            .end_timestamp
+            .checked_add(vault.grace_period)
+            .ok_or(Error::InvalidTimestamp)?;
+        if env.ledger().timestamp() <= redirect_after {
             return Err(Error::InvalidTimestamp); // Too early to redirect
         }
 
@@ -491,6 +506,7 @@ mod tests {
                 &self.end_timestamp,
                 &self.milestone_hash(),
                 &Some(self.verifier.clone()),
+                &0,
                 &self.success_dest,
                 &self.failure_dest,
             )
@@ -506,6 +522,7 @@ mod tests {
                 &self.end_timestamp,
                 &self.milestone_hash(),
                 &None,
+                &0,
                 &self.success_dest,
                 &self.failure_dest,
             )
@@ -594,6 +611,7 @@ mod tests {
             &setup.end_timestamp,
             &custom_hash,
             &Some(setup.verifier.clone()),
+            &0,
             &setup.success_dest,
             &setup.failure_dest,
         );
@@ -615,6 +633,7 @@ mod tests {
             &setup.end_timestamp,
             &setup.milestone_hash(),
             &None,
+            &0,
             &setup.success_dest,
             &setup.failure_dest,
         );
@@ -637,6 +656,7 @@ mod tests {
             &1000u64,
             &setup.milestone_hash(),
             &None,
+            &0,
             &setup.success_dest,
             &setup.failure_dest,
         );
@@ -758,6 +778,7 @@ mod tests {
             &1000, // start == end
             &setup.milestone_hash(),
             &None,
+            &0,
             &setup.success_dest,
             &setup.failure_dest,
         );
@@ -777,6 +798,7 @@ mod tests {
             &1000, // start > end
             &setup.milestone_hash(),
             &None,
+            &0,
             &setup.success_dest,
             &setup.failure_dest,
         );
@@ -1007,6 +1029,7 @@ mod tests {
             200,
             milestone_hash,
             Some(verifier),
+            0,
             success_addr,
             failure_addr,
         );
@@ -1026,6 +1049,7 @@ mod tests {
             &2000,
             &setup.milestone_hash(),
             &None,
+            &0,
             &setup.success_dest,
             &setup.failure_dest,
         );
@@ -1054,6 +1078,7 @@ mod tests {
             200,
             milestone_hash,
             Some(verifier),
+            0,
             success_addr,
             failure_addr,
         );
@@ -1114,6 +1139,7 @@ mod tests {
             200,
             milestone_hash,
             None,
+            0,
             success_addr,
             failure_addr,
         );
@@ -1152,6 +1178,7 @@ mod tests {
             &end_timestamp,
             &milestone_hash,
             &Some(verifier.clone()),
+            &0,
             &success_destination,
             &failure_destination,
         );
@@ -1355,6 +1382,7 @@ mod test {
             &200,
             &milestone_hash,
             &None,
+            &0,
             &success_dest,
             &failure_dest,
         );
@@ -1387,6 +1415,7 @@ mod test {
             &200,
             &milestone_hash,
             &None,
+            &0,
             &Address::generate(&env),
             &Address::generate(&env),
         );
@@ -1415,6 +1444,7 @@ mod test {
             &200,
             &milestone_hash,
             &None,
+            &0,
             &Address::generate(&env),
             &Address::generate(&env),
         );
@@ -1443,6 +1473,7 @@ mod test {
             &100,
             &milestone_hash,
             &None,
+            &0,
             &Address::generate(&env),
             &Address::generate(&env),
         );
@@ -1471,6 +1502,7 @@ mod test {
             &100,
             &milestone_hash,
             &None,
+            &0,
             &Address::generate(&env),
             &Address::generate(&env),
         );
@@ -1502,6 +1534,7 @@ mod test {
             &200,
             &milestone_hash,
             &None,
+            &0,
             &Address::generate(&env),
             &Address::generate(&env),
         );
@@ -1532,6 +1565,7 @@ mod test {
             &200,
             &milestone_hash,
             &Some(verifier),
+            &0,
             &Address::generate(&env),
             &Address::generate(&env),
         );
@@ -1565,6 +1599,7 @@ mod test {
             &200,
             &milestone_hash,
             &None,
+            &0,
             &Address::generate(&env),
             &Address::generate(&env),
         );

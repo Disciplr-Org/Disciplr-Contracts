@@ -6,7 +6,9 @@ use soroban_sdk::{
     Address, BytesN, Env,
 };
 
-use disciplr_vault::{DisciplrVault, DisciplrVaultClient, VaultStatus, MIN_AMOUNT};
+use disciplr_vault::{
+    DisciplrVault, DisciplrVaultClient, Error, VaultStatus, MAX_VAULT_DURATION, MIN_AMOUNT,
+};
 
 fn setup() -> (
     Env,
@@ -54,6 +56,7 @@ fn test_full_lifecycle_success() {
         &(now + 86_400),
         &milestone,
         &Some(verifier.clone()),
+        &0,
         &success_dest,
         &failure_dest,
     );
@@ -103,6 +106,7 @@ fn test_full_lifecycle_failure_redirection() {
         &(now + 86_400),
         &milestone,
         &None,
+        &0,
         &success_dest,
         &failure_dest,
     );
@@ -115,4 +119,118 @@ fn test_full_lifecycle_failure_redirection() {
     let final_state = client.get_vault_state(&vault_id).unwrap();
     assert_eq!(final_state.status, VaultStatus::Failed);
     assert_eq!(usdc_token.balance(&failure_dest), MIN_AMOUNT);
+}
+
+#[test]
+fn test_redirect_respects_creator_grace_period() {
+    let (env, client, usdc, usdc_asset, usdc_token) = setup();
+
+    let creator = Address::generate(&env);
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let now = 1_700_000_000u64;
+    let grace_period = 3_600u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+    let milestone = BytesN::from_array(&env, &[2u8; 32]);
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &milestone,
+        &None,
+        &grace_period,
+        &success_dest,
+        &failure_dest,
+    );
+
+    let vault = client.get_vault_state(&vault_id).unwrap();
+    assert_eq!(vault.grace_period, grace_period);
+
+    env.ledger().set_timestamp(now + 86_400 + grace_period);
+    let boundary_result = client.try_redirect_funds(&vault_id, &usdc);
+    assert!(
+        matches!(boundary_result, Err(Ok(Error::InvalidTimestamp))),
+        "redirect at exact grace boundary must fail: {:?}",
+        boundary_result
+    );
+
+    env.ledger().set_timestamp(now + 86_400 + grace_period + 1);
+    assert!(client.redirect_funds(&vault_id, &usdc));
+    assert_eq!(usdc_token.balance(&failure_dest), MIN_AMOUNT);
+}
+
+#[test]
+fn test_create_vault_rejects_oversized_grace_period() {
+    let (env, client, usdc, usdc_asset, _usdc_token) = setup();
+
+    let creator = Address::generate(&env);
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let now = 1_700_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+    let milestone = BytesN::from_array(&env, &[3u8; 32]);
+    let oversized_grace = MAX_VAULT_DURATION + 1;
+
+    let result = client.try_create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &milestone,
+        &None,
+        &oversized_grace,
+        &success_dest,
+        &failure_dest,
+    );
+
+    assert!(
+        matches!(result, Err(Ok(Error::DurationTooLong))),
+        "oversized grace period should be rejected: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_redirect_rejects_grace_deadline_overflow() {
+    let (env, client, usdc, usdc_asset, _usdc_token) = setup();
+
+    let creator = Address::generate(&env);
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let start = u64::MAX - MAX_VAULT_DURATION + 1;
+    let end = start + 1;
+    let grace_period = MAX_VAULT_DURATION;
+    env.ledger().set_timestamp(start);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+    let milestone = BytesN::from_array(&env, &[4u8; 32]);
+
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &start,
+        &end,
+        &milestone,
+        &None,
+        &grace_period,
+        &success_dest,
+        &failure_dest,
+    );
+
+    env.ledger().set_timestamp(u64::MAX);
+    let result = client.try_redirect_funds(&vault_id, &usdc);
+    assert!(
+        matches!(result, Err(Ok(Error::InvalidTimestamp))),
+        "overflowing grace deadline should be rejected: {:?}",
+        result
+    );
 }

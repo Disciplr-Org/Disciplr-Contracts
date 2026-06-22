@@ -54,6 +54,7 @@ proptest! {
             &(now + 86_400),
             &BytesN::from_array(&env, &[7u8; 32]),
             &None,
+            &0,
             &success,
             &failure,
         );
@@ -84,6 +85,7 @@ proptest! {
             &(now + 86_400),
             &BytesN::from_array(&env, &[8u8; 32]),
             &None,
+            &0,
             &success,
             &failure,
         );
@@ -108,6 +110,7 @@ fn edge_amount_min_succeeds() {
         &(1_725_000_000u64 + 86_400),
         &BytesN::from_array(&env, &[9u8; 32]),
         &None,
+        &0,
         &Address::generate(&env),
         &Address::generate(&env),
     );
@@ -132,6 +135,7 @@ fn edge_amount_max_succeeds() {
         &(1_725_000_000u64 + 86_400),
         &BytesN::from_array(&env, &[10u8; 32]),
         &None,
+        &0,
         &Address::generate(&env),
         &Address::generate(&env),
     );
@@ -156,6 +160,7 @@ fn edge_amount_max_underfunded_errors() {
         &(1_725_000_000u64 + 86_400),
         &BytesN::from_array(&env, &[11u8; 32]),
         &None,
+        &0,
         &Address::generate(&env),
         &Address::generate(&env),
     );

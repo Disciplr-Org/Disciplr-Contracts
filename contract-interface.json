@@ -19,6 +19,7 @@
         { "name": "amount", "type": "i128" },
         { "name": "start_timestamp", "type": "u64" },
         { "name": "end_timestamp", "type": "u64" },
+        { "name": "grace_period", "type": "u64" },
         { "name": "milestone_hash", "type": "BytesN<32>" },
         { "name": "verifier", "type": "Option<Address>" },
         { "name": "success_destination", "type": "Address" },
@@ -53,6 +54,7 @@
         { "name": "end_timestamp", "type": "u64" },
         { "name": "milestone_hash", "type": "BytesN<32>" },
         { "name": "verifier", "type": "Option<Address>" },
+        { "name": "grace_period", "type": "u64" },
         { "name": "success_destination", "type": "Address" },
         { "name": "failure_destination", "type": "Address" }
       ],

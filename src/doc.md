@@ -47,6 +47,7 @@ This guide provides comprehensive documentation for backend developers integrati
   "amount": "1000000000",
   "start_timestamp": 1704067200,
   "end_timestamp": 1706640000,
+  "grace_period": 3600,
   "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
   "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
@@ -63,6 +64,7 @@ This guide provides comprehensive documentation for backend developers integrati
 | `amount` | string | Yes | Amount in stroops (7 decimals: 1 USDC = 10,000,000 stroops) |
 | `start_timestamp` | integer | Yes | Unix timestamp when vault becomes active |
 | `end_timestamp` | integer | Yes | Unix timestamp deadline for milestone validation |
+| `grace_period` | integer | Yes | Additional seconds after `end_timestamp` before redirect is allowed; use `0` for legacy behavior |
 | `milestone_hash` | string | Yes | Hex-encoded SHA-256 hash of milestone document |
 | `verifier` | string | Optional | Designated verifier address (null for creator-only validation) |
 | `success_destination` | string | Yes | Address to receive funds on successful milestone |
@@ -72,6 +74,7 @@ This guide provides comprehensive documentation for backend developers integrati
 - `amount` must be between 1 USDC (10,000,000 stroops) and 10M USDC (10,000,000,000,000 stroops)
 - `end_timestamp` must be greater than `start_timestamp`
 - Vault duration cannot exceed 1 year (365 days)
+- `grace_period` cannot exceed 1 year (365 days)
 - `start_timestamp` must not be in the past
 
 **Response (201 Created):**
@@ -216,7 +219,7 @@ This guide provides comprehensive documentation for backend developers integrati
 
 **Constraints:**
 - Vault must exist and be in `Active` status
-- Current timestamp must be strictly greater than or equal to `end_timestamp`
+- Current timestamp must be strictly greater than `end_timestamp + grace_period`
 - `milestone_validated` must be false
 
 **Response (200 OK):**
@@ -238,7 +241,7 @@ This guide provides comprehensive documentation for backend developers integrati
 |-------------|------------|-------------|
 | 404 | `VaultNotFound` | Vault does not exist |
 | 400 | `VaultNotActive` | Vault is not in Active status |
-| 400 | `InvalidTimestamp` | Current time < end_timestamp (deadline not reached) |
+| 400 | `InvalidTimestamp` | Current time <= end_timestamp + grace_period, or grace deadline overflow |
 | 401 | `NotAuthorized` | Milestone was validated - funds should be released, not redirected |
 
 ---
@@ -305,6 +308,7 @@ This guide provides comprehensive documentation for backend developers integrati
     "amount": "1000000000",
     "start_timestamp": 1704067200,
     "end_timestamp": 1706640000,
+    "grace_period": 3600,
     "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
     "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
@@ -353,6 +357,7 @@ interface CreateVaultRequest {
   amount: string;
   start_timestamp: number;
   end_timestamp: number;
+  grace_period: number;
   milestone_hash: string;
   verifier?: string;
   success_destination: string;
@@ -400,6 +405,11 @@ class VaultService {
     if (duration > maxDuration) {
       throw new ValidationError('DurationTooLong',
         'Vault duration cannot exceed 1 year');
+    }
+
+    if (request.grace_period > maxDuration) {
+      throw new ValidationError('DurationTooLong',
+        'Grace period cannot exceed 1 year');
     }
     
     const now = Math.floor(Date.now() / 1000);
@@ -589,7 +599,7 @@ All transactions benefit from Stellar's built-in replay protection via sequence 
 | `create_vault` | Creator | Must sign and authorize USDC transfer |
 | `validate_milestone` | Verifier (if set) or Creator | Must be before deadline |
 | `release_funds` | Anyone | Conditions: validated OR past deadline |
-| `redirect_funds` | Anyone | Conditions: not validated AND past deadline |
+| `redirect_funds` | Anyone | Conditions: not validated AND past deadline plus grace period |
 | `cancel_vault` | Creator only | Vault must be Active |
 
 ---
@@ -706,7 +716,7 @@ This is the single enforcement point. Every state-changing function (`release_fu
 ### `redirect_funds`
  
  1. Loads the vault and calls `require_active`.
- 2. Checks `env.ledger().timestamp() > end_timestamp` — panics with `DeadlineNotReached` if too early.
+ 2. Checks `env.ledger().timestamp() > end_timestamp + grace_period` with checked addition — returns `InvalidTimestamp` if too early or if the grace deadline overflows.
  3. **Sets `status = Failed` and persists the vault** (Checks & Effects).
  4. Performs the transfer to `failure_destination` (Interactions).
 
