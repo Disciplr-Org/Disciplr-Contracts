@@ -68,8 +68,9 @@ pub struct ProductivityVault {
     pub milestone_hash: BytesN<32>,
     /// Optional designated verifier. When `Some(addr)`, only that address may call `validate_milestone`.
     /// When `None`, only the creator may call `validate_milestone` (no third-party validation).
-    /// `release_funds` is consistent: after deadline, anyone can release; before deadline, only
-    /// after the designated validator (or creator when verifier is None) has validated.
+    /// `release_funds` is permissionless once a success condition is true: after the deadline,
+    /// anyone can trigger release; before the deadline, release is allowed only after the
+    /// designated validator (or creator when verifier is None) has validated.
     pub verifier: Option<Address>,
     /// Funds go here on success.
     pub success_destination: Address,
@@ -254,6 +255,14 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Release vault funds to `success_destination`.
+    ///
+    /// Authorization matrix:
+    /// - Before `end_timestamp`: requires prior milestone validation by the configured verifier
+    ///   or creator, but the release call itself is permissionless.
+    /// - At or after `end_timestamp`: anyone can trigger release.
+    ///
+    /// This is safe because the caller cannot choose the recipient; funds always move to the
+    /// pre-committed `success_destination`.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -261,8 +270,6 @@ impl DisciplrVault {
             .instance()
             .get(&vault_key)
             .ok_or(Error::VaultNotFound)?;
-
-        vault.creator.require_auth();
 
         if vault.status != VaultStatus::Active {
             return Err(Error::VaultNotActive); // Or InvalidStatus as appropriate
@@ -848,6 +855,66 @@ mod tests {
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
+    fn test_release_funds_after_deadline_without_auth() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp);
+        setup.env.mock_auths(&[]);
+
+        let result = client.release_funds(&vault_id, &setup.usdc_token);
+
+        assert!(result);
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+        assert_eq!(
+            setup.usdc_client().balance(&setup.success_dest),
+            setup.amount
+        );
+    }
+
+    #[test]
+    fn test_release_funds_before_validation_without_auth_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.mock_auths(&[]);
+
+        assert!(client
+            .try_release_funds(&vault_id, &setup.usdc_token)
+            .is_err());
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Active);
+        assert_eq!(setup.usdc_client().balance(&setup.success_dest), 0);
+    }
+
+    #[test]
+    fn test_release_funds_after_validation_without_release_auth() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+        setup.env.mock_auths(&[]);
+
+        let result = client.release_funds(&vault_id, &setup.usdc_token);
+
+        assert!(result);
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+        assert_eq!(
+            setup.usdc_client().balance(&setup.success_dest),
+            setup.amount
+        );
     }
 
     #[test]

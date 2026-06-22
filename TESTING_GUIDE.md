@@ -160,6 +160,19 @@ cat test_snapshots/test/test_vault_creation_emits_event.1.json
 
 ## Security Testing
 
+### Release Authorization
+
+```bash
+cargo test test_release_funds_after_deadline_without_auth
+cargo test test_release_funds_before_validation_without_auth_rejected
+cargo test test_release_funds_after_validation_without_release_auth
+```
+
+These tests cover the `release_funds` authorization matrix documented in
+[docs/RELEASE_AUTH.md](./docs/RELEASE_AUTH.md): release is permissionless after a
+success condition is true, but an unvalidated pre-deadline vault cannot be
+released.
+
 ### Double-Spending Prevention
 
 ```bash
