@@ -3,7 +3,8 @@
 extern crate std;
 
 use disciplr_vault::{
-    DisciplrVault, DisciplrVaultClient, Error, MAX_AMOUNT, MAX_VAULT_DURATION, MIN_AMOUNT,
+    DisciplrVault, DisciplrVaultClient, Error, ProtocolFeeConfig, MAX_AMOUNT, MAX_VAULT_DURATION,
+    MIN_AMOUNT,
 };
 use proptest::prelude::*;
 use soroban_sdk::{
@@ -77,6 +78,7 @@ proptest! {
             &None,
             &success,
             &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
         );
 
         let vault = client.get_vault_state(&vault_id).expect("vault should exist");
@@ -116,6 +118,7 @@ proptest! {
             &None,
             &success,
             &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
         );
 
         assert_contract_error(result, Error::InvalidTimestamps);
@@ -151,6 +154,7 @@ proptest! {
             &None,
             &success,
             &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
         );
 
         assert_contract_error(result, Error::DurationTooLong);
@@ -186,8 +190,9 @@ proptest! {
                 &milestone,
                 &None,
                 &success,
-                &failure,
-            );
+            &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
+        );
             let vault = client.get_vault_state(&vault_id).expect("vault should exist");
             prop_assert_eq!(vault.start_timestamp, start);
             prop_assert_eq!(vault.end_timestamp, end_valid);
@@ -207,8 +212,9 @@ proptest! {
                 &milestone,
                 &None,
                 &success,
-                &failure,
-            );
+            &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
+        );
             assert_contract_error(result, Error::DurationTooLong);
         }
     }
@@ -244,6 +250,7 @@ proptest! {
             &None,
             &success,
             &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
         );
 
         assert_contract_error(result, Error::InvalidTimestamp);
@@ -272,13 +279,16 @@ fn edge_start_eq_now_succeeds() {
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     let vault = client.get_vault_state(&id).unwrap();
     assert_eq!(vault.start_timestamp, start);
     assert_eq!(vault.end_timestamp, end);
 }
-
 
 #[test]
 fn edge_start_eq_end_rejected() {
@@ -299,6 +309,10 @@ fn edge_start_eq_end_rejected() {
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     assert_contract_error(result, Error::InvalidTimestamps);
@@ -322,6 +336,10 @@ fn edge_zero_start_with_current_zero_succeeds() {
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     let vault = client.get_vault_state(&id).unwrap();
@@ -351,6 +369,10 @@ fn edge_max_duration_boundary_succeeds() {
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     let vault = client.get_vault_state(&id).unwrap();

@@ -50,7 +50,11 @@ This guide provides comprehensive documentation for backend developers integrati
   "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
   "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  "failure_destination": "GD7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+  "failure_destination": "GD7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "fee_config": {
+    "fee_bps": 250,
+    "fee_recipient": "GE7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+  }
 }
 ```
 
@@ -67,12 +71,15 @@ This guide provides comprehensive documentation for backend developers integrati
 | `verifier` | string | Optional | Designated verifier address (null for creator-only validation) |
 | `success_destination` | string | Yes | Address to receive funds on successful milestone |
 | `failure_destination` | string | Yes | Address to receive funds on failure |
+| `fee_config.fee_bps` | integer | Yes | Protocol fee in basis points, from 0 to 1000 |
+| `fee_config.fee_recipient` | string | Yes | Address receiving protocol fees when fee_bps is non-zero |
 
 **Constraints:**
 - `amount` must be between 1 USDC (10,000,000 stroops) and 10M USDC (10,000,000,000,000 stroops)
 - `end_timestamp` must be greater than `start_timestamp`
 - Vault duration cannot exceed 1 year (365 days)
 - `start_timestamp` must not be in the past
+- `fee_config.fee_bps` must be between 0 and 1000 (inclusive)
 
 **Response (201 Created):**
 ```json
@@ -93,6 +100,7 @@ This guide provides comprehensive documentation for backend developers integrati
 | 400 | `InvalidTimestamps` | Invalid timestamp ordering |
 | 400 | `InvalidTimestamp` | Start timestamp in the past |
 | 400 | `DurationTooLong` | Vault duration exceeds 1 year |
+| 400 | `InvalidFee` | Protocol fee exceeds MAX_FEE_BPS |
 | 401 | `NotAuthorized` | Creator signature invalid or missing |
 | 409 | `InsufficientBalance` | Creator has insufficient USDC balance |
 
@@ -309,6 +317,8 @@ This guide provides comprehensive documentation for backend developers integrati
     "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "failure_destination": "GD7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "fee_bps": 250,
+    "fee_recipient": "GE7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "status": "Active",
     "milestone_validated": false
   }
@@ -357,6 +367,10 @@ interface CreateVaultRequest {
   verifier?: string;
   success_destination: string;
   failure_destination: string;
+  fee_config: {
+    fee_bps: number;
+    fee_recipient: string;
+  };
 }
 
 class VaultService {
@@ -495,7 +509,8 @@ class ReleaseService {
     return {
       vault_id: request.vault_id,
       status: 'Completed',
-      amount_released: vault.amount,
+      amount_released: vault.amount_minus_fee,
+      protocol_fee: vault.protocol_fee,
       destination: vault.success_destination,
       transaction_hash: result.txHash,
       ledger_sequence: result.ledger,
@@ -527,6 +542,7 @@ Those sections are kept aligned with `src/lib.rs` and `contract-interface.json`.
 | `InvalidAmount` | 400 | INVALID_AMOUNT | No |
 | `InvalidTimestamps` | 400 | INVALID_TIMESTAMPS | No |
 | `DurationTooLong` | 400 | DURATION_TOO_LONG | No |
+| `InvalidFee` | 400 | INVALID_FEE | No |
 
 ### Standard Error Response Format
 

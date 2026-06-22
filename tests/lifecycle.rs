@@ -6,7 +6,9 @@ use soroban_sdk::{
     Address, BytesN, Env,
 };
 
-use disciplr_vault::{DisciplrVault, DisciplrVaultClient, VaultStatus, MIN_AMOUNT};
+use disciplr_vault::{
+    DisciplrVault, DisciplrVaultClient, ProtocolFeeConfig, VaultStatus, MIN_AMOUNT,
+};
 
 fn setup() -> (
     Env,
@@ -56,6 +58,10 @@ fn test_full_lifecycle_success() {
         &Some(verifier.clone()),
         &success_dest,
         &failure_dest,
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     assert_eq!(
@@ -105,6 +111,10 @@ fn test_full_lifecycle_failure_redirection() {
         &None,
         &success_dest,
         &failure_dest,
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     // 2. Wait until deadline passes without validation

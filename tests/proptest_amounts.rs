@@ -2,7 +2,9 @@
 
 extern crate std;
 
-use disciplr_vault::{DisciplrVault, DisciplrVaultClient, MAX_AMOUNT, MIN_AMOUNT};
+use disciplr_vault::{
+    DisciplrVault, DisciplrVaultClient, ProtocolFeeConfig, MAX_AMOUNT, MIN_AMOUNT,
+};
 use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -56,6 +58,7 @@ proptest! {
             &None,
             &success,
             &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
         );
 
         let vault = client.get_vault_state(&id).unwrap();
@@ -86,6 +89,7 @@ proptest! {
             &None,
             &success,
             &failure,
+            &ProtocolFeeConfig { fee_bps: 0, fee_recipient: creator.clone() },
         );
 
         prop_assert!(result.is_err());
@@ -110,6 +114,10 @@ fn edge_amount_min_succeeds() {
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     let vault = client.get_vault_state(&id).unwrap();
@@ -134,6 +142,10 @@ fn edge_amount_max_succeeds() {
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     let vault = client.get_vault_state(&id).unwrap();
@@ -158,6 +170,10 @@ fn edge_amount_max_underfunded_errors() {
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
+        &ProtocolFeeConfig {
+            fee_bps: 0,
+            fee_recipient: creator.clone(),
+        },
     );
 
     assert!(result.is_err());

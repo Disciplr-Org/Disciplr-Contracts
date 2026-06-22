@@ -37,6 +37,8 @@ pub enum Error {
     InvalidTimestamps = 8,
     /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
     DurationTooLong = 9,
+    /// Protocol fee basis points exceed the supported range.
+    InvalidFee = 10,
 }
 
 // ---------------------------------------------------------------------------
@@ -75,11 +77,25 @@ pub struct ProductivityVault {
     pub success_destination: Address,
     /// Funds go here on failure/redirect.
     pub failure_destination: Address,
+    /// Protocol fee in basis points, charged when funds are released or redirected.
+    pub fee_bps: u32,
+    /// Receives the protocol fee when `fee_bps` is non-zero.
+    pub fee_recipient: Address,
     /// Current lifecycle status.
     pub status: VaultStatus,
     /// Set to `true` once the verifier (or authorised party) calls `validate_milestone`.
     /// Used by `release_funds` to allow early release before the deadline.
     pub milestone_validated: bool,
+}
+
+/// Per-vault protocol fee settings.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProtocolFeeConfig {
+    /// Fee in basis points. Must be between 0 and `MAX_FEE_BPS`.
+    pub fee_bps: u32,
+    /// Receives protocol fees when `fee_bps` is non-zero.
+    pub fee_recipient: Address,
 }
 
 // ---------------------------------------------------------------------------
@@ -108,11 +124,58 @@ pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC
 /// otherwise returns `Error::InvalidAmount`.
 pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10M USDC
 
+/// Maximum protocol fee in basis points (10%).
+pub const MAX_FEE_BPS: u32 = 1_000;
+
+const BPS_DENOMINATOR: i128 = 10_000;
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Vault(u32),
     VaultCount,
+}
+
+fn compute_fee(amount: i128, fee_bps: u32) -> Result<i128, Error> {
+    if fee_bps > MAX_FEE_BPS {
+        return Err(Error::InvalidFee);
+    }
+    if fee_bps == 0 {
+        return Ok(0);
+    }
+
+    amount
+        .checked_mul(i128::from(fee_bps))
+        .and_then(|v| v.checked_add(BPS_DENOMINATOR - 1))
+        .and_then(|v| v.checked_div(BPS_DENOMINATOR))
+        .ok_or(Error::InvalidFee)
+}
+
+fn transfer_settlement(
+    env: &Env,
+    token_client: &token::Client<'_>,
+    vault_id: u32,
+    vault: &ProductivityVault,
+    destination: &Address,
+) -> Result<i128, Error> {
+    let fee = compute_fee(vault.amount, vault.fee_bps)?;
+    let net_amount = vault.amount.checked_sub(fee).ok_or(Error::InvalidFee)?;
+    let contract = env.current_contract_address();
+
+    if fee > 0 {
+        token_client.transfer(&contract, &vault.fee_recipient, &fee);
+        env.events().publish(
+            (
+                Symbol::new(env, "fee_collected"),
+                vault_id,
+                vault.fee_recipient.clone(),
+            ),
+            fee,
+        );
+    }
+
+    token_client.transfer(&contract, destination, &net_amount);
+    Ok(net_amount)
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +206,7 @@ impl DisciplrVault {
         verifier: Option<Address>,
         success_destination: Address,
         failure_destination: Address,
+        fee_config: ProtocolFeeConfig,
     ) -> Result<u32, Error> {
         creator.require_auth();
 
@@ -168,6 +232,9 @@ impl DisciplrVault {
         if duration > MAX_VAULT_DURATION {
             return Err(Error::DurationTooLong);
         }
+        if fee_config.fee_bps > MAX_FEE_BPS {
+            return Err(Error::InvalidFee);
+        }
 
         // Pull USDC from creator into this contract.
         let token_client = token::Client::new(&env, &usdc_token);
@@ -192,6 +259,8 @@ impl DisciplrVault {
             verifier,
             success_destination,
             failure_destination,
+            fee_bps: fee_config.fee_bps,
+            fee_recipient: fee_config.fee_recipient,
             status: VaultStatus::Active,
             milestone_validated: false,
         };
@@ -278,19 +347,19 @@ impl DisciplrVault {
         }
 
         let token_client = token::Client::new(&env, &usdc_token);
-        token_client.transfer(
-            &env.current_contract_address(),
+        let net_amount = transfer_settlement(
+            &env,
+            &token_client,
+            vault_id,
+            &vault,
             &vault.success_destination,
-            &vault.amount,
-        );
+        )?;
 
         vault.status = VaultStatus::Completed;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_released"), vault_id),
-            vault.amount,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "funds_released"), vault_id), net_amount);
         Ok(true)
     }
 
@@ -321,18 +390,20 @@ impl DisciplrVault {
         }
 
         let token_client = token::Client::new(&env, &usdc_token);
-        token_client.transfer(
-            &env.current_contract_address(),
+        let net_amount = transfer_settlement(
+            &env,
+            &token_client,
+            vault_id,
+            &vault,
             &vault.failure_destination,
-            &vault.amount,
-        );
+        )?;
 
         vault.status = VaultStatus::Failed;
         env.storage().instance().set(&vault_key, &vault);
 
         env.events().publish(
             (Symbol::new(&env, "funds_redirected"), vault_id),
-            vault.amount,
+            net_amount,
         );
         Ok(true)
     }
@@ -493,6 +564,10 @@ mod tests {
                 &Some(self.verifier.clone()),
                 &self.success_dest,
                 &self.failure_dest,
+                &ProtocolFeeConfig {
+                    fee_bps: 0,
+                    fee_recipient: self.creator.clone(),
+                },
             )
         }
 
@@ -508,6 +583,10 @@ mod tests {
                 &None,
                 &self.success_dest,
                 &self.failure_dest,
+                &ProtocolFeeConfig {
+                    fee_bps: 0,
+                    fee_recipient: self.creator.clone(),
+                },
             )
         }
     }
@@ -596,6 +675,10 @@ mod tests {
             &Some(setup.verifier.clone()),
             &setup.success_dest,
             &setup.failure_dest,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: setup.creator.clone(),
+            },
         );
 
         let vault = client.get_vault_state(&vault_id).unwrap();
@@ -617,6 +700,10 @@ mod tests {
             &None,
             &setup.success_dest,
             &setup.failure_dest,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: setup.creator.clone(),
+            },
         );
         assert!(
             result.is_err(),
@@ -639,6 +726,10 @@ mod tests {
             &None,
             &setup.success_dest,
             &setup.failure_dest,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: setup.creator.clone(),
+            },
         );
         assert!(
             result.is_err(),
@@ -760,6 +851,10 @@ mod tests {
             &None,
             &setup.success_dest,
             &setup.failure_dest,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: setup.creator.clone(),
+            },
         );
     }
 
@@ -779,6 +874,10 @@ mod tests {
             &None,
             &setup.success_dest,
             &setup.failure_dest,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: setup.creator.clone(),
+            },
         );
     }
 
@@ -1001,7 +1100,7 @@ mod tests {
         let _vault_id = DisciplrVault::create_vault(
             env,
             usdc_token,
-            creator,
+            creator.clone(),
             1000,
             100,
             200,
@@ -1009,6 +1108,10 @@ mod tests {
             Some(verifier),
             success_addr,
             failure_addr,
+            ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1028,6 +1131,10 @@ mod tests {
             &None,
             &setup.success_dest,
             &setup.failure_dest,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: setup.creator.clone(),
+            },
         );
     }
 
@@ -1048,7 +1155,7 @@ mod tests {
         let _vault_id = DisciplrVault::create_vault(
             env,
             usdc_token,
-            creator, // This address is NOT authorized
+            creator.clone(), // This address is NOT authorized
             1000,
             100,
             200,
@@ -1056,6 +1163,10 @@ mod tests {
             Some(verifier),
             success_addr,
             failure_addr,
+            ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1108,7 +1219,7 @@ mod tests {
         let _vault_id = DisciplrVault::create_vault(
             env,
             usdc_token,
-            creator,
+            creator.clone(),
             5000,
             100,
             200,
@@ -1116,6 +1227,10 @@ mod tests {
             None,
             success_addr,
             failure_addr,
+            ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1154,6 +1269,10 @@ mod tests {
             &Some(verifier.clone()),
             &success_destination,
             &failure_destination,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
 
         // Vault count starts at 0, first vault gets ID 0
@@ -1357,6 +1476,10 @@ mod test {
             &None,
             &success_dest,
             &failure_dest,
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
 
         assert_eq!(vault_id, 0);
@@ -1389,6 +1512,10 @@ mod test {
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1417,6 +1544,10 @@ mod test {
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1445,6 +1576,10 @@ mod test {
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1473,6 +1608,10 @@ mod test {
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1504,6 +1643,10 @@ mod test {
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
     }
 
@@ -1534,6 +1677,10 @@ mod test {
             &Some(verifier),
             &Address::generate(&env),
             &Address::generate(&env),
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
 
         assert_eq!(vault_id, 0);
@@ -1567,6 +1714,10 @@ mod test {
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
+            &ProtocolFeeConfig {
+                fee_bps: 0,
+                fee_recipient: creator.clone(),
+            },
         );
 
         assert_eq!(vault_id, 0);

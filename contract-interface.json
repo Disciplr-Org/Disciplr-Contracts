@@ -23,8 +23,17 @@
         { "name": "verifier", "type": "Option<Address>" },
         { "name": "success_destination", "type": "Address" },
         { "name": "failure_destination", "type": "Address" },
+        { "name": "fee_bps", "type": "u32" },
+        { "name": "fee_recipient", "type": "Address" },
         { "name": "status", "type": "VaultStatus" },
         { "name": "milestone_validated", "type": "bool" }
+      ]
+    },
+    "ProtocolFeeConfig": {
+      "type": "struct",
+      "fields": [
+        { "name": "fee_bps", "type": "u32" },
+        { "name": "fee_recipient", "type": "Address" }
       ]
     },
     "Error": {
@@ -38,7 +47,8 @@
         "InvalidStatus": 6,
         "InvalidAmount": 7,
         "InvalidTimestamps": 8,
-        "DurationTooLong": 9
+        "DurationTooLong": 9,
+        "InvalidFee": 10
       }
     }
   },
@@ -54,7 +64,8 @@
         { "name": "milestone_hash", "type": "BytesN<32>" },
         { "name": "verifier", "type": "Option<Address>" },
         { "name": "success_destination", "type": "Address" },
-        { "name": "failure_destination", "type": "Address" }
+        { "name": "failure_destination", "type": "Address" },
+        { "name": "fee_config", "type": "ProtocolFeeConfig" }
       ],
       "outputs": { "type": "Result<u32, Error>" }
     },
@@ -121,6 +132,11 @@
     {
       "name": "funds_redirected",
       "topic": ["funds_redirected", "u32"],
+      "data": "i128"
+    },
+    {
+      "name": "fee_collected",
+      "topic": ["fee_collected", "u32", "Address"],
       "data": "i128"
     },
     {
