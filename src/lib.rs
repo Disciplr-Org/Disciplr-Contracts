@@ -4,7 +4,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -37,6 +37,8 @@ pub enum Error {
     InvalidTimestamps = 8,
     /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
     DurationTooLong = 9,
+    /// Milestone index is outside the vault's milestone list, or the list is empty at creation.
+    MilestoneIndexOutOfRange = 10,
 }
 
 // ---------------------------------------------------------------------------
@@ -64,8 +66,8 @@ pub struct ProductivityVault {
     pub start_timestamp: u64,
     /// Ledger timestamp after which deadline-based release is allowed.
     pub end_timestamp: u64,
-    /// Hash representing the milestone the creator commits to.
-    pub milestone_hash: BytesN<32>,
+    /// Ordered milestone hashes the creator commits to.
+    pub milestones: Vec<BytesN<32>>,
     /// Optional designated verifier. When `Some(addr)`, only that address may call `validate_milestone`.
     /// When `None`, only the creator may call `validate_milestone` (no third-party validation).
     /// `release_funds` is consistent: after deadline, anyone can release; before deadline, only
@@ -77,9 +79,8 @@ pub struct ProductivityVault {
     pub failure_destination: Address,
     /// Current lifecycle status.
     pub status: VaultStatus,
-    /// Set to `true` once the verifier (or authorised party) calls `validate_milestone`.
-    /// Used by `release_funds` to allow early release before the deadline.
-    pub milestone_validated: bool,
+    /// Per-index validation flags matching `milestones`.
+    pub milestone_validations: Vec<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,27 @@ pub enum DataKey {
     VaultCount,
 }
 
+fn all_milestones_validated(validations: &Vec<bool>) -> bool {
+    let mut index = 0;
+    while index < validations.len() {
+        if !validations.get_unchecked(index) {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+fn build_validation_flags(env: &Env, len: u32) -> Vec<bool> {
+    let mut validations = Vec::new(env);
+    let mut index = 0;
+    while index < len {
+        validations.push_back(false);
+        index += 1;
+    }
+    validations
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -139,7 +161,7 @@ impl DisciplrVault {
         amount: i128,
         start_timestamp: u64,
         end_timestamp: u64,
-        milestone_hash: BytesN<32>,
+        milestones: Vec<BytesN<32>>,
         verifier: Option<Address>,
         success_destination: Address,
         failure_destination: Address,
@@ -168,6 +190,9 @@ impl DisciplrVault {
         if duration > MAX_VAULT_DURATION {
             return Err(Error::DurationTooLong);
         }
+        if milestones.is_empty() {
+            return Err(Error::MilestoneIndexOutOfRange);
+        }
 
         // Pull USDC from creator into this contract.
         let token_client = token::Client::new(&env, &usdc_token);
@@ -188,12 +213,12 @@ impl DisciplrVault {
             amount,
             start_timestamp,
             end_timestamp,
-            milestone_hash,
+            milestone_validations: build_validation_flags(&env, milestones.len()),
+            milestones,
             verifier,
             success_destination,
             failure_destination,
             status: VaultStatus::Active,
-            milestone_validated: false,
         };
 
         env.storage()
@@ -212,12 +237,16 @@ impl DisciplrVault {
     // validate_milestone
     // -----------------------------------------------------------------------
 
-    /// Verifier (or authorized party) validates milestone completion.
+    /// Verifier (or authorized party) validates one milestone by index.
     ///
     /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
     /// this function. If `verifier` is `None`, only the creator may call it (no validation by
     /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
-    pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
+    pub fn validate_milestone(
+        env: Env,
+        vault_id: u32,
+        milestone_index: u32,
+    ) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
@@ -240,12 +269,20 @@ impl DisciplrVault {
         if env.ledger().timestamp() >= vault.end_timestamp {
             return Err(Error::MilestoneExpired);
         }
+        if milestone_index >= vault.milestone_validations.len() {
+            return Err(Error::MilestoneIndexOutOfRange);
+        }
+        if vault.milestone_validations.get_unchecked(milestone_index) {
+            return Err(Error::InvalidStatus);
+        }
 
-        vault.milestone_validated = true;
+        vault.milestone_validations.set(milestone_index, true);
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events()
-            .publish((Symbol::new(&env, "milestone_validated"), vault_id), ());
+        env.events().publish(
+            (Symbol::new(&env, "milestone_validated"), vault_id),
+            milestone_index,
+        );
         Ok(true)
     }
 
@@ -271,7 +308,7 @@ impl DisciplrVault {
         // Check release conditions.
         let now = env.ledger().timestamp();
         let deadline_reached = now >= vault.end_timestamp;
-        let validated = vault.milestone_validated;
+        let validated = all_milestones_validated(&vault.milestone_validations);
 
         if !validated && !deadline_reached {
             return Err(Error::NotAuthorized);
@@ -315,8 +352,8 @@ impl DisciplrVault {
             return Err(Error::InvalidTimestamp); // Too early to redirect
         }
 
-        // If milestone was validated the funds should go to success, not failure.
-        if vault.milestone_validated {
+        // If all milestones were validated the funds should go to success, not failure.
+        if all_milestones_validated(&vault.milestone_validations) {
             return Err(Error::NotAuthorized);
         }
 
@@ -416,6 +453,12 @@ mod tests {
     // Helpers
     // -----------------------------------------------------------------------
 
+    fn single_milestone(env: &Env, hash: BytesN<32>) -> Vec<BytesN<32>> {
+        let mut milestones = Vec::new(env);
+        milestones.push_back(hash);
+        milestones
+    }
+
     struct TestSetup {
         env: Env,
         contract_id: Address,
@@ -482,6 +525,12 @@ mod tests {
             BytesN::from_array(&self.env, &[1u8; 32])
         }
 
+        fn milestones(&self) -> Vec<BytesN<32>> {
+            let mut milestones = Vec::new(&self.env);
+            milestones.push_back(self.milestone_hash());
+            milestones
+        }
+
         fn create_default_vault(&self) -> u32 {
             self.client().create_vault(
                 &self.usdc_token,
@@ -489,7 +538,7 @@ mod tests {
                 &self.amount,
                 &self.start_timestamp,
                 &self.end_timestamp,
-                &self.milestone_hash(),
+                &self.milestones(),
                 &Some(self.verifier.clone()),
                 &self.success_dest,
                 &self.failure_dest,
@@ -504,7 +553,7 @@ mod tests {
                 &self.amount,
                 &self.start_timestamp,
                 &self.end_timestamp,
-                &self.milestone_hash(),
+                &self.milestones(),
                 &None,
                 &self.success_dest,
                 &self.failure_dest,
@@ -531,7 +580,8 @@ mod tests {
         assert_eq!(vault.amount, setup.amount);
         assert_eq!(vault.start_timestamp, setup.start_timestamp);
         assert_eq!(vault.end_timestamp, setup.end_timestamp);
-        assert_eq!(vault.milestone_hash, setup.milestone_hash());
+        assert_eq!(vault.milestones.get_unchecked(0), setup.milestone_hash());
+        assert!(!vault.milestone_validations.get_unchecked(0));
         assert_eq!(vault.verifier, Some(setup.verifier));
         assert_eq!(vault.success_destination, setup.success_dest);
         assert_eq!(vault.failure_destination, setup.failure_dest);
@@ -584,6 +634,8 @@ mod tests {
         let client = setup.client();
 
         let custom_hash = BytesN::from_array(&setup.env, &[0xab; 32]);
+        let mut custom_milestones = Vec::new(&setup.env);
+        custom_milestones.push_back(custom_hash.clone());
         setup.env.ledger().set_timestamp(setup.start_timestamp);
 
         let vault_id = client.create_vault(
@@ -592,14 +644,14 @@ mod tests {
             &setup.amount,
             &setup.start_timestamp,
             &setup.end_timestamp,
-            &custom_hash,
+            &custom_milestones,
             &Some(setup.verifier.clone()),
             &setup.success_dest,
             &setup.failure_dest,
         );
 
         let vault = client.get_vault_state(&vault_id).unwrap();
-        assert_eq!(vault.milestone_hash, custom_hash);
+        assert_eq!(vault.milestones.get_unchecked(0), custom_hash);
     }
 
     #[test]
@@ -613,7 +665,7 @@ mod tests {
             &0i128,
             &setup.start_timestamp,
             &setup.end_timestamp,
-            &setup.milestone_hash(),
+            &setup.milestones(),
             &None,
             &setup.success_dest,
             &setup.failure_dest,
@@ -635,7 +687,7 @@ mod tests {
             &setup.amount,
             &1000u64,
             &1000u64,
-            &setup.milestone_hash(),
+            &setup.milestones(),
             &None,
             &setup.success_dest,
             &setup.failure_dest,
@@ -658,14 +710,14 @@ mod tests {
         setup.env.ledger().set_timestamp(setup.end_timestamp);
 
         // Try to validate milestone - should fail with MilestoneExpired
-        let result = client.try_validate_milestone(&vault_id);
+        let result = client.try_validate_milestone(&vault_id, &0);
         assert!(result.is_err());
 
         // Advance ledger past end_timestamp
         setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
 
         // Try to validate milestone - should also fail
-        let result = client.try_validate_milestone(&vault_id);
+        let result = client.try_validate_milestone(&vault_id, &0);
         assert!(result.is_err());
     }
 
@@ -680,12 +732,12 @@ mod tests {
         // Set time to just before end
         setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
 
-        let success = client.validate_milestone(&vault_id);
+        let success = client.validate_milestone(&vault_id, &0);
         assert!(success);
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         // Validation now sets milestone_validated, NOT status = Completed
-        assert!(vault.milestone_validated);
+        assert!(vault.milestone_validations.get_unchecked(0));
         assert_eq!(vault.status, VaultStatus::Active);
     }
 
@@ -700,11 +752,11 @@ mod tests {
 
         setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
 
-        let result = client.validate_milestone(&vault_id);
+        let result = client.validate_milestone(&vault_id, &0);
         assert!(result);
 
         let vault = client.get_vault_state(&vault_id).unwrap();
-        assert!(vault.milestone_validated);
+        assert!(vault.milestone_validations.get_unchecked(0));
         assert_eq!(vault.verifier, None);
     }
 
@@ -756,7 +808,7 @@ mod tests {
             &setup.amount,
             &1000,
             &1000, // start == end
-            &setup.milestone_hash(),
+            &setup.milestones(),
             &None,
             &setup.success_dest,
             &setup.failure_dest,
@@ -775,7 +827,7 @@ mod tests {
             &setup.amount,
             &2000,
             &1000, // start > end
-            &setup.milestone_hash(),
+            &setup.milestones(),
             &None,
             &setup.success_dest,
             &setup.failure_dest,
@@ -809,7 +861,7 @@ mod tests {
         let vault_id = setup.create_default_vault();
 
         // Validate milestone.
-        client.validate_milestone(&vault_id);
+        client.validate_milestone(&vault_id, &0);
 
         let usdc = setup.usdc_client();
         let success_before = usdc.balance(&setup.success_dest);
@@ -908,7 +960,7 @@ mod tests {
         client.release_funds(&vault_id, &setup.usdc_token);
 
         // Validate after completion — must error.
-        assert!(client.try_validate_milestone(&vault_id).is_err());
+        assert!(client.try_validate_milestone(&vault_id, &0).is_err());
     }
 
     #[test]
@@ -996,6 +1048,7 @@ mod tests {
         let failure_addr = Address::generate(&env);
         let verifier = Address::generate(&env);
         let milestone_hash = BytesN::<32>::from_array(&env, &[0u8; 32]);
+        let milestones = single_milestone(&env, milestone_hash);
 
         // DO NOT authorize the creator
         let _vault_id = DisciplrVault::create_vault(
@@ -1005,7 +1058,7 @@ mod tests {
             1000,
             100,
             200,
-            milestone_hash,
+            milestones,
             Some(verifier),
             success_addr,
             failure_addr,
@@ -1024,7 +1077,7 @@ mod tests {
             &0i128,
             &1000,
             &2000,
-            &setup.milestone_hash(),
+            &setup.milestones(),
             &None,
             &setup.success_dest,
             &setup.failure_dest,
@@ -1042,6 +1095,7 @@ mod tests {
         let failure_addr = Address::generate(&env);
         let verifier = Address::generate(&env);
         let milestone_hash = BytesN::<32>::from_array(&env, &[1u8; 32]);
+        let milestones = single_milestone(&env, milestone_hash);
 
         different_caller.require_auth();
 
@@ -1052,7 +1106,7 @@ mod tests {
             1000,
             100,
             200,
-            milestone_hash,
+            milestones,
             Some(verifier),
             success_addr,
             failure_addr,
@@ -1102,6 +1156,7 @@ mod tests {
         let success_addr = Address::generate(&env);
         let failure_addr = Address::generate(&env);
         let milestone_hash = BytesN::<32>::from_array(&env, &[4u8; 32]);
+        let milestones = single_milestone(&env, milestone_hash);
 
         attacker.require_auth();
 
@@ -1112,7 +1167,7 @@ mod tests {
             5000,
             100,
             200,
-            milestone_hash,
+            milestones,
             None,
             success_addr,
             failure_addr,
@@ -1150,7 +1205,7 @@ mod tests {
             &amount,
             &start_timestamp,
             &end_timestamp,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &Some(verifier.clone()),
             &success_destination,
             &failure_destination,
@@ -1206,7 +1261,7 @@ mod tests {
         let vault_id = setup.create_default_vault();
 
         // Release funds to make it Completed
-        client.validate_milestone(&vault_id);
+        client.validate_milestone(&vault_id, &0);
         client.release_funds(&vault_id, &setup.usdc_token);
 
         // Attempt to cancel - should panic with error VaultNotActive
@@ -1309,6 +1364,12 @@ mod test {
     };
     extern crate std;
 
+    fn single_milestone(env: &Env, hash: BytesN<32>) -> Vec<BytesN<32>> {
+        let mut milestones = Vec::new(env);
+        milestones.push_back(hash);
+        milestones
+    }
+
     fn create_token_contract<'a>(
         env: &Env,
         admin: &Address,
@@ -1353,7 +1414,7 @@ mod test {
             &MIN_AMOUNT,
             &100,
             &200,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &None,
             &success_dest,
             &failure_dest,
@@ -1385,7 +1446,7 @@ mod test {
             &0,
             &100,
             &200,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
@@ -1413,7 +1474,7 @@ mod test {
             &-100,
             &100,
             &200,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
@@ -1441,7 +1502,7 @@ mod test {
             &MIN_AMOUNT,
             &200,
             &100,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
@@ -1469,7 +1530,7 @@ mod test {
             &MIN_AMOUNT,
             &100,
             &100,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
@@ -1500,7 +1561,7 @@ mod test {
             &MIN_AMOUNT,
             &100,
             &200,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &None,
             &Address::generate(&env),
             &Address::generate(&env),
@@ -1530,7 +1591,7 @@ mod test {
             &MIN_AMOUNT,
             &100,
             &200,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &Some(verifier),
             &Address::generate(&env),
             &Address::generate(&env),
@@ -1563,7 +1624,7 @@ mod test {
             &MIN_AMOUNT,
             &100,
             &200,
-            &milestone_hash,
+            &single_milestone(&env, milestone_hash.clone()),
             &None,
             &Address::generate(&env),
             &Address::generate(&env),

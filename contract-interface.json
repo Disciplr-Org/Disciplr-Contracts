@@ -19,12 +19,12 @@
         { "name": "amount", "type": "i128" },
         { "name": "start_timestamp", "type": "u64" },
         { "name": "end_timestamp", "type": "u64" },
-        { "name": "milestone_hash", "type": "BytesN<32>" },
+        { "name": "milestones", "type": "Vec<BytesN<32>>" },
         { "name": "verifier", "type": "Option<Address>" },
         { "name": "success_destination", "type": "Address" },
         { "name": "failure_destination", "type": "Address" },
         { "name": "status", "type": "VaultStatus" },
-        { "name": "milestone_validated", "type": "bool" }
+        { "name": "milestone_validations", "type": "Vec<bool>" }
       ]
     },
     "Error": {
@@ -38,7 +38,8 @@
         "InvalidStatus": 6,
         "InvalidAmount": 7,
         "InvalidTimestamps": 8,
-        "DurationTooLong": 9
+        "DurationTooLong": 9,
+        "MilestoneIndexOutOfRange": 10
       }
     }
   },
@@ -51,7 +52,7 @@
         { "name": "amount", "type": "i128" },
         { "name": "start_timestamp", "type": "u64" },
         { "name": "end_timestamp", "type": "u64" },
-        { "name": "milestone_hash", "type": "BytesN<32>" },
+        { "name": "milestones", "type": "Vec<BytesN<32>>" },
         { "name": "verifier", "type": "Option<Address>" },
         { "name": "success_destination", "type": "Address" },
         { "name": "failure_destination", "type": "Address" }
@@ -61,7 +62,8 @@
     {
       "name": "validate_milestone",
       "inputs": [
-        { "name": "vault_id", "type": "u32" }
+        { "name": "vault_id", "type": "u32" },
+        { "name": "milestone_index", "type": "u32" }
       ],
       "outputs": { "type": "Result<bool, Error>" }
     },
@@ -111,7 +113,7 @@
     {
       "name": "milestone_validated",
       "topic": ["milestone_validated", "u32"],
-      "data": null
+      "data": "u32"
     },
     {
       "name": "funds_released",

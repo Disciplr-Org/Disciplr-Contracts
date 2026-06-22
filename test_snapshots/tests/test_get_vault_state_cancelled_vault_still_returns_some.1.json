@@ -77,7 +77,11 @@
                   "u64": 1000
                 },
                 {
-                  "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                  "vec": [
+                    {
+                      "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                    }
+                  ]
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -386,18 +390,26 @@
                             },
                             {
                               "key": {
-                                "symbol": "milestone_hash"
+                                "symbol": "milestone_validations"
                               },
                               "val": {
-                                "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                                "vec": [
+                                  {
+                                    "bool": false
+                                  }
+                                ]
                               }
                             },
                             {
                               "key": {
-                                "symbol": "milestone_validated"
+                                "symbol": "milestones"
                               },
                               "val": {
-                                "bool": false
+                                "vec": [
+                                  {
+                                    "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                                  }
+                                ]
                               }
                             },
                             {

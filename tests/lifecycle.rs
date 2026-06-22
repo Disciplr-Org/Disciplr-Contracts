@@ -3,10 +3,16 @@
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{StellarAssetClient, TokenClient},
-    Address, BytesN, Env,
+    Address, BytesN, Env, Vec,
 };
 
 use disciplr_vault::{DisciplrVault, DisciplrVaultClient, VaultStatus, MIN_AMOUNT};
+
+fn single_milestone(env: &Env, hash: BytesN<32>) -> Vec<BytesN<32>> {
+    let mut milestones = Vec::new(env);
+    milestones.push_back(hash);
+    milestones
+}
 
 fn setup() -> (
     Env,
@@ -44,6 +50,7 @@ fn test_full_lifecycle_success() {
     usdc_asset.mint(&creator, &MIN_AMOUNT);
 
     let milestone = BytesN::from_array(&env, &[1u8; 32]);
+    let milestones = single_milestone(&env, milestone);
 
     // 1. Create Vault
     let vault_id = client.create_vault(
@@ -52,7 +59,7 @@ fn test_full_lifecycle_success() {
         &MIN_AMOUNT,
         &now,
         &(now + 86_400),
-        &milestone,
+        &milestones,
         &Some(verifier.clone()),
         &success_dest,
         &failure_dest,
@@ -65,13 +72,12 @@ fn test_full_lifecycle_success() {
 
     // 2. Validate Milestone
     env.ledger().set_timestamp(now + 3_600);
-    client.validate_milestone(&vault_id);
-    assert!(
-        client
-            .get_vault_state(&vault_id)
-            .unwrap()
-            .milestone_validated
-    );
+    client.validate_milestone(&vault_id, &0);
+    assert!(client
+        .get_vault_state(&vault_id)
+        .unwrap()
+        .milestone_validations
+        .get_unchecked(0));
 
     // 3. Release Funds
     client.release_funds(&vault_id, &usdc);
@@ -93,6 +99,7 @@ fn test_full_lifecycle_failure_redirection() {
     usdc_asset.mint(&creator, &MIN_AMOUNT);
 
     let milestone = BytesN::from_array(&env, &[1u8; 32]);
+    let milestones = single_milestone(&env, milestone);
 
     // 1. Create Vault
     let vault_id = client.create_vault(
@@ -101,7 +108,7 @@ fn test_full_lifecycle_failure_redirection() {
         &MIN_AMOUNT,
         &now,
         &(now + 86_400),
-        &milestone,
+        &milestones,
         &None,
         &success_dest,
         &failure_dest,

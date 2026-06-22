@@ -9,7 +9,7 @@ use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::StellarAssetClient,
-    Address, BytesN, Env,
+    Address, BytesN, Env, Vec,
 };
 
 fn setup() -> (
@@ -30,6 +30,12 @@ fn setup() -> (
     let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
 
     (env, client, usdc_addr, usdc_asset)
+}
+
+fn single_milestone(env: &Env, byte: u8) -> Vec<BytesN<32>> {
+    let mut milestones = Vec::new(env);
+    milestones.push_back(BytesN::from_array(env, &[byte; 32]));
+    milestones
 }
 
 fn assert_contract_error<T: core::fmt::Debug>(
@@ -57,7 +63,7 @@ proptest! {
         let creator = Address::generate(&env);
         let success = Address::generate(&env);
         let failure = Address::generate(&env);
-        let milestone = BytesN::from_array(&env, &[0u8; 32]);
+        let milestone = single_milestone(&env, 0);
 
         env.ledger().set_timestamp(now);
 
@@ -112,7 +118,7 @@ proptest! {
             &amount,
             &start,
             &end,
-            &BytesN::from_array(&env, &[1u8; 32]),
+            &single_milestone(&env, 1),
             &None,
             &success,
             &failure,
@@ -147,7 +153,7 @@ proptest! {
             &amount,
             &start,
             &end,
-            &BytesN::from_array(&env, &[2u8; 32]),
+            &single_milestone(&env, 2),
             &None,
             &success,
             &failure,
@@ -167,7 +173,7 @@ proptest! {
         let creator = Address::generate(&env);
         let success = Address::generate(&env);
         let failure = Address::generate(&env);
-        let milestone = BytesN::from_array(&env, &[3u8; 32]);
+        let milestone = single_milestone(&env, 3);
 
         env.ledger().set_timestamp(now);
 
@@ -225,7 +231,7 @@ proptest! {
         let creator = Address::generate(&env);
         let success = Address::generate(&env);
         let failure = Address::generate(&env);
-        let milestone = BytesN::from_array(&env, &[4u8; 32]);
+        let milestone = single_milestone(&env, 4);
 
         env.ledger().set_timestamp(now);
 
@@ -268,7 +274,7 @@ fn edge_start_eq_now_succeeds() {
         &MIN_AMOUNT,
         &start,
         &end,
-        &BytesN::from_array(&env, &[6u8; 32]),
+        &single_milestone(&env, 6),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
@@ -278,7 +284,6 @@ fn edge_start_eq_now_succeeds() {
     assert_eq!(vault.start_timestamp, start);
     assert_eq!(vault.end_timestamp, end);
 }
-
 
 #[test]
 fn edge_start_eq_end_rejected() {
@@ -295,7 +300,7 @@ fn edge_start_eq_end_rejected() {
         &MIN_AMOUNT,
         &now,
         &now,
-        &BytesN::from_array(&env, &[3u8; 32]),
+        &single_milestone(&env, 3),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
@@ -318,7 +323,7 @@ fn edge_zero_start_with_current_zero_succeeds() {
         &MIN_AMOUNT,
         &0,
         &1,
-        &BytesN::from_array(&env, &[4u8; 32]),
+        &single_milestone(&env, 4),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
@@ -347,7 +352,7 @@ fn edge_max_duration_boundary_succeeds() {
         &MIN_AMOUNT,
         &start,
         &end,
-        &BytesN::from_array(&env, &[5u8; 32]),
+        &single_milestone(&env, 5),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),

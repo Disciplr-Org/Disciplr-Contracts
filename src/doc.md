@@ -47,7 +47,9 @@ This guide provides comprehensive documentation for backend developers integrati
   "amount": "1000000000",
   "start_timestamp": 1704067200,
   "end_timestamp": 1706640000,
-  "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
+  "milestones": [
+    "4d696c6573746f6e655f726571756972656d656e74735f68617368"
+  ],
   "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   "failure_destination": "GD7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
@@ -63,7 +65,7 @@ This guide provides comprehensive documentation for backend developers integrati
 | `amount` | string | Yes | Amount in stroops (7 decimals: 1 USDC = 10,000,000 stroops) |
 | `start_timestamp` | integer | Yes | Unix timestamp when vault becomes active |
 | `end_timestamp` | integer | Yes | Unix timestamp deadline for milestone validation |
-| `milestone_hash` | string | Yes | Hex-encoded SHA-256 hash of milestone document |
+| `milestones` | array<string> | Yes | Ordered milestone document hashes; submit one item to preserve the legacy single-milestone flow |
 | `verifier` | string | Optional | Designated verifier address (null for creator-only validation) |
 | `success_destination` | string | Yes | Address to receive funds on successful milestone |
 | `failure_destination` | string | Yes | Address to receive funds on failure |
@@ -106,6 +108,7 @@ This guide provides comprehensive documentation for backend developers integrati
 ```json
 {
   "vault_id": 42,
+  "milestone_index": 0,
   "verifier_signature": "signature_data_here"
 }
 ```
@@ -115,6 +118,7 @@ This guide provides comprehensive documentation for backend developers integrati
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `vault_id` | integer | Yes | ID of vault to validate |
+| `milestone_index` | integer | Yes | Zero-based milestone index to validate |
 | `verifier_signature` | string | Yes | Signed transaction from authorized verifier |
 
 **Constraints:**
@@ -127,6 +131,7 @@ This guide provides comprehensive documentation for backend developers integrati
 ```json
 {
   "vault_id": 42,
+  "milestone_index": 0,
   "milestone_validated": true,
   "transaction_hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
   "ledger_sequence": 12345680,
@@ -168,7 +173,7 @@ This guide provides comprehensive documentation for backend developers integrati
 
 **Constraints:**
 - Vault must exist and be in `Active` status
-- Either `milestone_validated` is true OR current time >= `end_timestamp`
+- Every milestone validation flag is true OR current time >= `end_timestamp`
 
 **Response (200 OK):**
 ```json
@@ -217,7 +222,7 @@ This guide provides comprehensive documentation for backend developers integrati
 **Constraints:**
 - Vault must exist and be in `Active` status
 - Current timestamp must be strictly greater than or equal to `end_timestamp`
-- `milestone_validated` must be false
+- At least one milestone validation flag must be false
 
 **Response (200 OK):**
 ```json
@@ -305,12 +310,14 @@ This guide provides comprehensive documentation for backend developers integrati
     "amount": "1000000000",
     "start_timestamp": 1704067200,
     "end_timestamp": 1706640000,
-    "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
+    "milestones": [
+      "4d696c6573746f6e655f726571756972656d656e74735f68617368"
+    ],
     "verifier": "GB7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "success_destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "failure_destination": "GD7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "status": "Active",
-    "milestone_validated": false
+    "milestone_validations": [false]
   }
 }
 ```
@@ -353,7 +360,7 @@ interface CreateVaultRequest {
   amount: string;
   start_timestamp: number;
   end_timestamp: number;
-  milestone_hash: string;
+  milestones: string[];
   verifier?: string;
   success_destination: string;
   failure_destination: string;
@@ -416,6 +423,7 @@ class VaultService {
 ```typescript
 interface ValidateMilestoneRequest {
   vault_id: number;
+  milestone_index: number;
   verifier_signature: string;
 }
 
@@ -446,6 +454,7 @@ class ValidationService {
     
     return {
       vault_id: request.vault_id,
+      milestone_index: request.milestone_index,
       milestone_validated: true,
       transaction_hash: result.txHash,
       ledger_sequence: result.ledger,
@@ -481,7 +490,7 @@ class ReleaseService {
     // 2. Check release conditions
     const now = Math.floor(Date.now() / 1000);
     const deadlineReached = now >= vault.end_timestamp;
-    const validated = vault.milestone_validated;
+    const validated = vault.milestone_validations.every(Boolean);
     
     if (!validated && !deadlineReached) {
       throw new AuthorizationError('NotAuthorized',
@@ -588,8 +597,8 @@ All transactions benefit from Stellar's built-in replay protection via sequence 
 |-----------|-------------------|-------|
 | `create_vault` | Creator | Must sign and authorize USDC transfer |
 | `validate_milestone` | Verifier (if set) or Creator | Must be before deadline |
-| `release_funds` | Anyone | Conditions: validated OR past deadline |
-| `redirect_funds` | Anyone | Conditions: not validated AND past deadline |
+| `release_funds` | Anyone | Conditions: all milestones validated OR past deadline |
+| `redirect_funds` | Anyone | Conditions: not all milestones validated AND past deadline |
 | `cancel_vault` | Creator only | Vault must be Active |
 
 ---
@@ -601,7 +610,7 @@ All transactions benefit from Stellar's built-in replay protection via sequence 
 | Event | Topic | Data | Trigger |
 |-------|-------|------|---------|
 | `vault_created` | `("vault_created", vault_id)` | `ProductivityVault` | Vault creation |
-| `milestone_validated` | `("milestone_validated", vault_id)` | `()` | Successful validation |
+| `milestone_validated` | `("milestone_validated", vault_id)` | `u32` | Successful validation index |
 | `funds_released` | `("funds_released", vault_id)` | `amount: i128` | Fund release |
 | `funds_redirected` | `("funds_redirected", vault_id)` | `amount: i128` | Fund redirect |
 | `vault_cancelled` | `("vault_cancelled", vault_id)` | `()` | Vault cancellation |

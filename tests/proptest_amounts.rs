@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::StellarAssetClient,
-    Address, BytesN, Env,
+    Address, BytesN, Env, Vec,
 };
 
 fn setup() -> (
@@ -28,6 +28,12 @@ fn setup() -> (
     let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
 
     (env, client, usdc_addr, usdc_asset)
+}
+
+fn single_milestone(env: &Env, byte: u8) -> Vec<BytesN<32>> {
+    let mut milestones = Vec::new(env);
+    milestones.push_back(BytesN::from_array(env, &[byte; 32]));
+    milestones
 }
 
 proptest! {
@@ -52,7 +58,7 @@ proptest! {
             &amount,
             &now,
             &(now + 86_400),
-            &BytesN::from_array(&env, &[7u8; 32]),
+            &single_milestone(&env, 7),
             &None,
             &success,
             &failure,
@@ -82,7 +88,7 @@ proptest! {
             &amount,
             &now,
             &(now + 86_400),
-            &BytesN::from_array(&env, &[8u8; 32]),
+            &single_milestone(&env, 8),
             &None,
             &success,
             &failure,
@@ -106,7 +112,7 @@ fn edge_amount_min_succeeds() {
         &MIN_AMOUNT,
         &1_725_000_000u64,
         &(1_725_000_000u64 + 86_400),
-        &BytesN::from_array(&env, &[9u8; 32]),
+        &single_milestone(&env, 9),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
@@ -130,7 +136,7 @@ fn edge_amount_max_succeeds() {
         &MAX_AMOUNT,
         &1_725_000_000u64,
         &(1_725_000_000u64 + 86_400),
-        &BytesN::from_array(&env, &[10u8; 32]),
+        &single_milestone(&env, 10),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
@@ -154,7 +160,7 @@ fn edge_amount_max_underfunded_errors() {
         &MAX_AMOUNT,
         &1_725_000_000u64,
         &(1_725_000_000u64 + 86_400),
-        &BytesN::from_array(&env, &[11u8; 32]),
+        &single_milestone(&env, 11),
         &None,
         &Address::generate(&env),
         &Address::generate(&env),
