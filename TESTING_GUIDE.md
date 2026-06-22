@@ -87,6 +87,26 @@ Verifies audit trail logging:
 cargo test test_.*_emits_event
 ```
 
+### 3a. Release Funds Balance Flow (Issue #226)
+
+Focused lifecycle coverage proves exact USDC movement for `release_funds`:
+
+```bash
+cargo test --test lifecycle test_full_lifecycle_success
+cargo test --test lifecycle test_release_funds_after_deadline_moves_exact_balance
+cargo test --test lifecycle test_double_release_rejection_preserves_balances
+cargo test test_release_funds_emits_event_with_amount
+```
+
+What is validated:
+
+- Validated-before-deadline release debits the contract address by exactly `vault.amount`.
+- Deadline-based release credits `success_destination` by exactly `vault.amount`.
+- The creator balance is unchanged during release because the escrow debit already happened at vault creation.
+- The contract balance reaches zero after a full release.
+- A second release attempt is rejected and leaves contract, creator, and `success_destination` balances unchanged.
+- `funds_released` is emitted with the vault id topic and exact released amount.
+
 ### 4. Data Integrity (10 tests)
 
 Edge cases and comprehensive validation:

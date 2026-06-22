@@ -851,6 +851,43 @@ mod tests {
     }
 
     #[test]
+    fn test_release_funds_emits_event_with_amount() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp);
+
+        assert!(client.release_funds(&vault_id, &setup.usdc_token));
+
+        let event_name = Symbol::new(&setup.env, "funds_released");
+        let found = setup
+            .env
+            .events()
+            .all()
+            .into_iter()
+            .any(|(emitter, topics, data)| {
+                if emitter != setup.contract_id {
+                    return false;
+                }
+
+                let topic_name: Symbol = topics.get(0).unwrap().try_into_val(&setup.env).unwrap();
+                let event_vault_id: u32 = topics.get(1).unwrap().try_into_val(&setup.env).unwrap();
+                let event_amount: i128 = data.try_into_val(&setup.env).unwrap();
+
+                topic_name == event_name
+                    && event_vault_id == vault_id
+                    && event_amount == setup.amount
+            });
+
+        assert!(
+            found,
+            "funds_released event must include vault id and amount"
+        );
+    }
+
+    #[test]
     fn test_double_release_rejected() {
         let setup = TestSetup::new();
         let client = setup.client();

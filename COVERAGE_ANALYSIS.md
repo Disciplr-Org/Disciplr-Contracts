@@ -101,6 +101,15 @@ According to [smart contract testing best practices](https://moldstud.com/articl
 - Cancellation events
 - Initial status verification
 
+**Release Funds Balance Flow (Issue #226):**
+
+- Validated release path asserts the contract escrow balance is debited by exactly `vault.amount`
+- Deadline release path asserts `success_destination` is credited by exactly `vault.amount`
+- Creator balance is checked before and after release to prove release does not debit the creator twice
+- Post-release contract balance reaches zero for a fully funded vault
+- Double-release rejection preserves contract, creator, and `success_destination` balances
+- `funds_released` event coverage verifies the vault id topic and exact amount payload via `env.events()`
+
 **Data Integrity & Edge Cases (10 tests):**
 
 - Vault creation with verifier

@@ -12,6 +12,7 @@ fn setup() -> (
     Env,
     DisciplrVaultClient<'static>,
     Address,
+    Address,
     StellarAssetClient<'static>,
     TokenClient<'static>,
 ) {
@@ -27,12 +28,19 @@ fn setup() -> (
     let usdc_asset = StellarAssetClient::new(&env, &usdc_addr);
     let usdc_token_client = TokenClient::new(&env, &usdc_addr);
 
-    (env, client, usdc_addr, usdc_asset, usdc_token_client)
+    (
+        env,
+        client,
+        contract_id,
+        usdc_addr,
+        usdc_asset,
+        usdc_token_client,
+    )
 }
 
 #[test]
 fn test_full_lifecycle_success() {
-    let (env, client, usdc, usdc_asset, usdc_token) = setup();
+    let (env, client, contract_id, usdc, usdc_asset, usdc_token) = setup();
 
     let creator = Address::generate(&env);
     let verifier = Address::generate(&env);
@@ -74,15 +82,110 @@ fn test_full_lifecycle_success() {
     );
 
     // 3. Release Funds
+    let contract_before = usdc_token.balance(&contract_id);
+    let creator_before = usdc_token.balance(&creator);
+    let success_before = usdc_token.balance(&success_dest);
     client.release_funds(&vault_id, &usdc);
     let final_state = client.get_vault_state(&vault_id).unwrap();
     assert_eq!(final_state.status, VaultStatus::Completed);
-    assert_eq!(usdc_token.balance(&success_dest), MIN_AMOUNT);
+
+    assert_eq!(contract_before, MIN_AMOUNT);
+    assert_eq!(
+        usdc_token.balance(&contract_id),
+        contract_before - MIN_AMOUNT
+    );
+    assert_eq!(usdc_token.balance(&creator), creator_before);
+    assert_eq!(
+        usdc_token.balance(&success_dest),
+        success_before + MIN_AMOUNT
+    );
+}
+
+#[test]
+fn test_release_funds_after_deadline_moves_exact_balance() {
+    let (env, client, contract_id, usdc, usdc_asset, usdc_token) = setup();
+
+    let creator = Address::generate(&env);
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let now = 1_700_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let milestone = BytesN::from_array(&env, &[2u8; 32]);
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &milestone,
+        &None,
+        &success_dest,
+        &failure_dest,
+    );
+
+    env.ledger().set_timestamp(now + 86_400);
+
+    let contract_before = usdc_token.balance(&contract_id);
+    let creator_before = usdc_token.balance(&creator);
+    let success_before = usdc_token.balance(&success_dest);
+
+    client.release_funds(&vault_id, &usdc);
+
+    let final_state = client.get_vault_state(&vault_id).unwrap();
+    assert_eq!(final_state.status, VaultStatus::Completed);
+    assert_eq!(contract_before, MIN_AMOUNT);
+    assert_eq!(usdc_token.balance(&contract_id), 0);
+    assert_eq!(usdc_token.balance(&creator), creator_before);
+    assert_eq!(
+        usdc_token.balance(&success_dest),
+        success_before + MIN_AMOUNT
+    );
+}
+
+#[test]
+fn test_double_release_rejection_preserves_balances() {
+    let (env, client, contract_id, usdc, usdc_asset, usdc_token) = setup();
+
+    let creator = Address::generate(&env);
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let now = 1_700_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let milestone = BytesN::from_array(&env, &[3u8; 32]);
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &milestone,
+        &None,
+        &success_dest,
+        &failure_dest,
+    );
+
+    env.ledger().set_timestamp(now + 86_400);
+    client.release_funds(&vault_id, &usdc);
+
+    let contract_after_release = usdc_token.balance(&contract_id);
+    let creator_after_release = usdc_token.balance(&creator);
+    let success_after_release = usdc_token.balance(&success_dest);
+
+    assert!(client.try_release_funds(&vault_id, &usdc).is_err());
+    assert_eq!(usdc_token.balance(&contract_id), contract_after_release);
+    assert_eq!(usdc_token.balance(&creator), creator_after_release);
+    assert_eq!(usdc_token.balance(&success_dest), success_after_release);
 }
 
 #[test]
 fn test_full_lifecycle_failure_redirection() {
-    let (env, client, usdc, usdc_asset, usdc_token) = setup();
+    let (env, client, _contract_id, usdc, usdc_asset, usdc_token) = setup();
 
     let creator = Address::generate(&env);
     let success_dest = Address::generate(&env);
