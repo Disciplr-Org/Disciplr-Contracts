@@ -15,6 +15,8 @@ and the machine-readable interface lives in
 | Entrypoint | Mutates state | Purpose |
 | --- | --- | --- |
 | `create_vault` | Yes | Creates and funds a new vault, assigns a sequential vault id, and starts it in `Active`. |
+| `initialize` | Yes | Stores the emergency-pause admin exactly once. |
+| `set_paused` | Yes | Lets the initialized admin pause or unpause mutating entrypoints. |
 | `validate_milestone` | Yes | Marks an `Active` vault milestone as validated before the deadline. |
 | `release_funds` | Yes | Sends funds to `success_destination` and moves the vault to `Completed`. |
 | `redirect_funds` | Yes | Sends funds to `failure_destination` and moves the vault to `Failed`. |
@@ -40,6 +42,9 @@ and the backend mapping in [`src/doc.md`](src/doc.md#error-handling).
 | `7` | `InvalidAmount` | `create_vault` | `amount` is below `MIN_AMOUNT` or above `MAX_AMOUNT`. This covers zero, negative, and over-maximum amounts. |
 | `8` | `InvalidTimestamps` | `create_vault` | `end_timestamp` is less than or equal to `start_timestamp`. |
 | `9` | `DurationTooLong` | `create_vault` | `end_timestamp - start_timestamp` exceeds `MAX_VAULT_DURATION` (365 days). |
+| `10` | `ContractPaused` | Mutating vault entrypoints | The initialized admin has paused the contract. Read-only getters still work. |
+| `11` | `AlreadyInitialized` | `initialize` | The admin has already been set. |
+| `12` | `NotInitialized` | `set_paused` | Pause administration was called before `initialize`. |
 
 ## Vault Lifecycle
 
@@ -68,6 +73,8 @@ stateDiagram-v2
 
 Any attempt to call `validate_milestone`, `release_funds`, `redirect_funds`, or
 `cancel_vault` after a terminal transition returns `VaultNotActive` (`#3`).
+When paused, mutating entrypoints return `ContractPaused` (`#10`) before their
+normal state transitions; `get_vault_state` and `vault_count` remain available.
 
 ## Source Of Truth
 
@@ -77,3 +84,5 @@ Any attempt to call `validate_milestone`, `release_funds`, `redirect_funds`, or
   for integrators and tooling.
 - [`src/doc.md`](src/doc.md) maps these contract semantics to backend API
   payloads and HTTP error responses.
+- [`docs/ADMIN_PAUSE.md`](docs/ADMIN_PAUSE.md) documents the optional admin
+  emergency-pause model.

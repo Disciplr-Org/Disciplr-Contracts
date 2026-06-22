@@ -38,11 +38,28 @@
         "InvalidStatus": 6,
         "InvalidAmount": 7,
         "InvalidTimestamps": 8,
-        "DurationTooLong": 9
+        "DurationTooLong": 9,
+        "ContractPaused": 10,
+        "AlreadyInitialized": 11,
+        "NotInitialized": 12
       }
     }
   },
   "functions": [
+    {
+      "name": "initialize",
+      "inputs": [
+        { "name": "admin", "type": "Address" }
+      ],
+      "outputs": { "type": "Result<bool, Error>" }
+    },
+    {
+      "name": "set_paused",
+      "inputs": [
+        { "name": "paused", "type": "bool" }
+      ],
+      "outputs": { "type": "Result<bool, Error>" }
+    },
     {
       "name": "create_vault",
       "inputs": [

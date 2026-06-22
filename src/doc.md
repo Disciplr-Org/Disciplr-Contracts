@@ -23,6 +23,8 @@ This guide provides comprehensive documentation for backend developers integrati
 
 | Contract Method | HTTP Method | API Endpoint | Purpose |
 |----------------|-------------|--------------|---------|
+| `initialize` | POST | `/api/v1/admin/initialize` | Set the emergency-pause admin once |
+| `set_paused` | POST | `/api/v1/admin/pause` | Toggle emergency pause state |
 | `create_vault` | POST | `/api/v1/vaults` | Create new productivity vault |
 | `validate_milestone` | POST | `/api/v1/vaults/{vault_id}/validate` | Validate milestone completion |
 | `release_funds` | POST | `/api/v1/vaults/{vault_id}/release` | Release funds to success destination |
@@ -527,6 +529,9 @@ Those sections are kept aligned with `src/lib.rs` and `contract-interface.json`.
 | `InvalidAmount` | 400 | INVALID_AMOUNT | No |
 | `InvalidTimestamps` | 400 | INVALID_TIMESTAMPS | No |
 | `DurationTooLong` | 400 | DURATION_TOO_LONG | No |
+| `ContractPaused` | 503 | CONTRACT_PAUSED | Yes |
+| `AlreadyInitialized` | 409 | ALREADY_INITIALIZED | No |
+| `NotInitialized` | 400 | NOT_INITIALIZED | No |
 
 ### Standard Error Response Format
 
@@ -586,11 +591,16 @@ All transactions benefit from Stellar's built-in replay protection via sequence 
 
 | Operation | Authorized Caller | Notes |
 |-----------|-------------------|-------|
+| `initialize` | Admin address being configured | One-time setup; rejects repeat initialization |
+| `set_paused` | Configured admin | Toggles mutating-entrypoint pause state |
 | `create_vault` | Creator | Must sign and authorize USDC transfer |
 | `validate_milestone` | Verifier (if set) or Creator | Must be before deadline |
 | `release_funds` | Anyone | Conditions: validated OR past deadline |
 | `redirect_funds` | Anyone | Conditions: not validated AND past deadline |
 | `cancel_vault` | Creator only | Vault must be Active |
+
+When paused, mutating vault operations return `ContractPaused`; `get_vault_state`
+and `vault_count` remain readable for incident response.
 
 ---
 

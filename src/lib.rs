@@ -37,6 +37,12 @@ pub enum Error {
     InvalidTimestamps = 8,
     /// Vault duration (end − start) exceeds MAX_VAULT_DURATION.
     DurationTooLong = 9,
+    /// Contract is paused by the configured admin.
+    ContractPaused = 10,
+    /// Admin has already been initialized.
+    AlreadyInitialized = 11,
+    /// Admin has not been initialized.
+    NotInitialized = 12,
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +119,8 @@ pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10M USDC
 pub enum DataKey {
     Vault(u32),
     VaultCount,
+    Admin,
+    Paused,
 }
 
 // ---------------------------------------------------------------------------
@@ -122,8 +130,54 @@ pub enum DataKey {
 #[contract]
 pub struct DisciplrVault;
 
+fn require_not_paused(env: &Env) -> Result<(), Error> {
+    let paused = env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false);
+    if paused {
+        return Err(Error::ContractPaused);
+    }
+    Ok(())
+}
+
 #[contractimpl]
 impl DisciplrVault {
+    /// Initialize the contract admin once.
+    ///
+    /// Existing vault flows remain usable before initialization, but pause
+    /// administration requires this one-time setup. Re-initialization returns
+    /// `Error::AlreadyInitialized`.
+    pub fn initialize(env: Env, admin: Address) -> Result<bool, Error> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(Error::AlreadyInitialized);
+        }
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Paused, &false);
+        Ok(true)
+    }
+
+    /// Set the contract emergency pause state.
+    ///
+    /// Only the initialized admin may toggle this flag. While paused, mutating
+    /// vault entrypoints reject with `Error::ContractPaused`; read-only getters
+    /// remain available.
+    pub fn set_paused(env: Env, paused: bool) -> Result<bool, Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &paused);
+        let event_name = if paused { "paused" } else { "unpaused" };
+        env.events()
+            .publish((Symbol::new(&env, event_name), admin), paused);
+        Ok(true)
+    }
+
     /// Create a new productivity vault. Transfers USDC from creator to contract.
     ///
     /// # Validation Rules
@@ -144,6 +198,7 @@ impl DisciplrVault {
         success_destination: Address,
         failure_destination: Address,
     ) -> Result<u32, Error> {
+        require_not_paused(&env)?;
         creator.require_auth();
 
         // Validate amount bounds
@@ -218,6 +273,7 @@ impl DisciplrVault {
     /// this function. If `verifier` is `None`, only the creator may call it (no validation by
     /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
+        require_not_paused(&env)?;
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
@@ -255,6 +311,7 @@ impl DisciplrVault {
 
     /// Release vault funds to `success_destination`.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        require_not_paused(&env)?;
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
@@ -300,6 +357,7 @@ impl DisciplrVault {
 
     /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        require_not_paused(&env)?;
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
@@ -343,6 +401,7 @@ impl DisciplrVault {
 
     /// Cancel vault and return funds to creator.
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        require_not_paused(&env)?;
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
