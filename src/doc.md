@@ -598,13 +598,17 @@ All transactions benefit from Stellar's built-in replay protection via sequence 
 
 ### Contract Events
 
+Lifecycle events keep their existing event names and use a consistent indexed
+topic tuple: `(event_name, vault_id, creator)`. The data payload is always
+`VaultLifecycleEventData { amount, destination, status }`.
+
 | Event | Topic | Data | Trigger |
 |-------|-------|------|---------|
-| `vault_created` | `("vault_created", vault_id)` | `ProductivityVault` | Vault creation |
-| `milestone_validated` | `("milestone_validated", vault_id)` | `()` | Successful validation |
-| `funds_released` | `("funds_released", vault_id)` | `amount: i128` | Fund release |
-| `funds_redirected` | `("funds_redirected", vault_id)` | `amount: i128` | Fund redirect |
-| `vault_cancelled` | `("vault_cancelled", vault_id)` | `()` | Vault cancellation |
+| `vault_created` | `("vault_created", vault_id, creator)` | `{ amount, destination: None, status: Active }` | Vault creation |
+| `milestone_validated` | `("milestone_validated", vault_id, creator)` | `{ amount, destination: None, status: Active }` | Successful validation |
+| `funds_released` | `("funds_released", vault_id, creator)` | `{ amount, destination: Some(success_destination), status: Completed }` | Fund release |
+| `funds_redirected` | `("funds_redirected", vault_id, creator)` | `{ amount, destination: Some(failure_destination), status: Failed }` | Fund redirect |
+| `vault_cancelled` | `("vault_cancelled", vault_id, creator)` | `{ amount, destination: Some(creator), status: Cancelled }` | Vault cancellation |
 
 ### Event Subscription Pattern
 
@@ -613,11 +617,11 @@ class EventMonitor {
   async subscribeToVaultEvents(vaultId: number): Promise<void> {
     const filter = {
       topics: [
-        ['vault_created', vaultId.toString()],
-        ['milestone_validated', vaultId.toString()],
-        ['funds_released', vaultId.toString()],
-        ['funds_redirected', vaultId.toString()],
-        ['vault_cancelled', vaultId.toString()]
+        ['vault_created', vaultId.toString(), creatorAddress],
+        ['milestone_validated', vaultId.toString(), creatorAddress],
+        ['funds_released', vaultId.toString(), creatorAddress],
+        ['funds_redirected', vaultId.toString(), creatorAddress],
+        ['vault_cancelled', vaultId.toString(), creatorAddress]
       ]
     };
     
@@ -630,10 +634,15 @@ class EventMonitor {
   private handleVaultEvent(vaultId: number, event: SorobanEvent): void {
     switch (event.topic[0]) {
       case 'milestone_validated':
-        this.emit('milestoneValidated', { vaultId });
+        this.emit('milestoneValidated', { vaultId, status: event.data.status });
         break;
       case 'funds_released':
-        this.emit('fundsReleased', { vaultId, amount: event.data });
+        this.emit('fundsReleased', {
+          vaultId,
+          amount: event.data.amount,
+          destination: event.data.destination,
+          status: event.data.status
+        });
         break;
       // ... handle other events
     }

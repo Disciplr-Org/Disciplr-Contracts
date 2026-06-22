@@ -82,6 +82,19 @@ pub struct ProductivityVault {
     pub milestone_validated: bool,
 }
 
+/// Typed payload emitted by every vault lifecycle event.
+///
+/// Topics are always `(event_name, vault_id, creator)`. Data carries the
+/// vault amount, the destination affected by the transition when there is one,
+/// and the status after the transition.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultLifecycleEventData {
+    pub amount: i128,
+    pub destination: Option<Address>,
+    pub status: VaultStatus,
+}
+
 // ---------------------------------------------------------------------------
 // Storage keys
 // ---------------------------------------------------------------------------
@@ -184,7 +197,7 @@ impl DisciplrVault {
             .instance()
             .set(&DataKey::VaultCount, &vault_count);
         let vault = ProductivityVault {
-            creator,
+            creator: creator.clone(),
             amount,
             start_timestamp,
             end_timestamp,
@@ -200,9 +213,14 @@ impl DisciplrVault {
             .instance()
             .set(&DataKey::Vault(vault_id), &vault);
 
+        // Emitted when a new vault is funded and stored.
         env.events().publish(
-            (Symbol::new(&env, "vault_created"), vault_id),
-            vault.clone(),
+            (Symbol::new(&env, "vault_created"), vault_id, creator),
+            VaultLifecycleEventData {
+                amount: vault.amount,
+                destination: None,
+                status: vault.status,
+            },
         );
 
         Ok(vault_id)
@@ -244,8 +262,19 @@ impl DisciplrVault {
         vault.milestone_validated = true;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events()
-            .publish((Symbol::new(&env, "milestone_validated"), vault_id), ());
+        // Emitted when the verifier or creator validates a vault milestone.
+        env.events().publish(
+            (
+                Symbol::new(&env, "milestone_validated"),
+                vault_id,
+                vault.creator.clone(),
+            ),
+            VaultLifecycleEventData {
+                amount: vault.amount,
+                destination: None,
+                status: vault.status,
+            },
+        );
         Ok(true)
     }
 
@@ -287,9 +316,18 @@ impl DisciplrVault {
         vault.status = VaultStatus::Completed;
         env.storage().instance().set(&vault_key, &vault);
 
+        // Emitted when vault funds are released to the success destination.
         env.events().publish(
-            (Symbol::new(&env, "funds_released"), vault_id),
-            vault.amount,
+            (
+                Symbol::new(&env, "funds_released"),
+                vault_id,
+                vault.creator.clone(),
+            ),
+            VaultLifecycleEventData {
+                amount: vault.amount,
+                destination: Some(vault.success_destination.clone()),
+                status: vault.status,
+            },
         );
         Ok(true)
     }
@@ -330,9 +368,18 @@ impl DisciplrVault {
         vault.status = VaultStatus::Failed;
         env.storage().instance().set(&vault_key, &vault);
 
+        // Emitted when vault funds are redirected to the failure destination.
         env.events().publish(
-            (Symbol::new(&env, "funds_redirected"), vault_id),
-            vault.amount,
+            (
+                Symbol::new(&env, "funds_redirected"),
+                vault_id,
+                vault.creator.clone(),
+            ),
+            VaultLifecycleEventData {
+                amount: vault.amount,
+                destination: Some(vault.failure_destination.clone()),
+                status: vault.status,
+            },
         );
         Ok(true)
     }
@@ -366,8 +413,19 @@ impl DisciplrVault {
         vault.status = VaultStatus::Cancelled;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events()
-            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), ());
+        // Emitted when the creator cancels an active vault and receives a refund.
+        env.events().publish(
+            (
+                Symbol::new(&env, "vault_cancelled"),
+                vault_id,
+                vault.creator.clone(),
+            ),
+            VaultLifecycleEventData {
+                amount: vault.amount,
+                destination: Some(vault.creator.clone()),
+                status: vault.status,
+            },
+        );
         Ok(true)
     }
 
