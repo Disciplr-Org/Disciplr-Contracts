@@ -26,6 +26,7 @@ This guide provides comprehensive documentation for backend developers integrati
 | `create_vault` | POST | `/api/v1/vaults` | Create new productivity vault |
 | `validate_milestone` | POST | `/api/v1/vaults/{vault_id}/validate` | Validate milestone completion |
 | `release_funds` | POST | `/api/v1/vaults/{vault_id}/release` | Release funds to success destination |
+| `release_partial` | POST | `/api/v1/vaults/{vault_id}/release-partial` | Release a success tranche and keep tracking remaining escrow |
 | `redirect_funds` | POST | `/api/v1/vaults/{vault_id}/redirect` | Redirect funds to failure destination |
 | `cancel_vault` | POST | `/api/v1/vaults/{vault_id}/cancel` | Cancel vault and return funds |
 | `get_vault_state` | GET | `/api/v1/vaults/{vault_id}` | Query vault state |
@@ -176,6 +177,7 @@ This guide provides comprehensive documentation for backend developers integrati
   "vault_id": 42,
   "status": "Completed",
   "amount_released": "1000000000",
+  "remaining_amount": "0",
   "destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   "transaction_hash": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3",
   "ledger_sequence": 12345682,
@@ -190,6 +192,39 @@ This guide provides comprehensive documentation for backend developers integrati
 | 404 | `VaultNotFound` | Vault does not exist |
 | 400 | `VaultNotActive` | Vault is not in Active status |
 | 401 | `NotAuthorized` | Release conditions not met (not validated and before deadline) |
+
+---
+
+### 3a. Release Partial Funds
+
+**Endpoint:** `POST /api/v1/vaults/{vault_id}/release-partial`
+
+**Request Payload:**
+```json
+{
+  "vault_id": 42,
+  "usdc_token": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+  "release_amount": "250000000",
+  "caller_signature": "signature_data_here"
+}
+```
+
+Partial release uses the same validation-or-deadline gate as `release_funds`.
+`release_amount` must be positive and no greater than `remaining_amount`.
+
+**Response (200 OK):**
+```json
+{
+  "vault_id": 42,
+  "status": "Active",
+  "amount_released": "250000000",
+  "remaining_amount": "750000000",
+  "destination": "GC7XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "transaction_hash": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3",
+  "ledger_sequence": 12345682,
+  "released_at": "2024-01-20T00:00:00Z"
+}
+```
 
 ---
 
@@ -303,6 +338,7 @@ This guide provides comprehensive documentation for backend developers integrati
   "vault": {
     "creator": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     "amount": "1000000000",
+    "remaining_amount": "1000000000",
     "start_timestamp": 1704067200,
     "end_timestamp": 1706640000,
     "milestone_hash": "4d696c6573746f6e655f726571756972656d656e74735f68617368",
@@ -495,7 +531,8 @@ class ReleaseService {
     return {
       vault_id: request.vault_id,
       status: 'Completed',
-      amount_released: vault.amount,
+      amount_released: vault.remaining_amount,
+      remaining_amount: '0',
       destination: vault.success_destination,
       transaction_hash: result.txHash,
       ledger_sequence: result.ledger,
@@ -616,6 +653,7 @@ class EventMonitor {
         ['vault_created', vaultId.toString()],
         ['milestone_validated', vaultId.toString()],
         ['funds_released', vaultId.toString()],
+        ['funds_released_partial', vaultId.toString()],
         ['funds_redirected', vaultId.toString()],
         ['vault_cancelled', vaultId.toString()]
       ]

@@ -346,6 +346,17 @@
                             },
                             {
                               "key": {
+                                "symbol": "remaining_amount"
+                              },
+                              "val": {
+                                "i128": {
+                                  "hi": 0,
+                                  "lo": 10000000
+                                }
+                              }
+                            },
+                            {
+                              "key": {
                                 "symbol": "start_timestamp"
                               },
                               "val": {

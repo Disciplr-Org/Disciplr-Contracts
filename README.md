@@ -16,9 +16,10 @@ and the machine-readable interface lives in
 | --- | --- | --- |
 | `create_vault` | Yes | Creates and funds a new vault, assigns a sequential vault id, and starts it in `Active`. |
 | `validate_milestone` | Yes | Marks an `Active` vault milestone as validated before the deadline. |
-| `release_funds` | Yes | Sends funds to `success_destination` and moves the vault to `Completed`. |
-| `redirect_funds` | Yes | Sends funds to `failure_destination` and moves the vault to `Failed`. |
-| `cancel_vault` | Yes | Returns funds to the creator and moves the vault to `Cancelled`. |
+| `release_funds` | Yes | Sends the full remaining balance to `success_destination` and moves the vault to `Completed`. |
+| `release_partial` | Yes | Sends a positive tranche to `success_destination` and keeps the vault `Active` until the remaining balance is zero. |
+| `redirect_funds` | Yes | Sends the remaining balance to `failure_destination` and moves the vault to `Failed`. |
+| `cancel_vault` | Yes | Returns the remaining balance to the creator and moves the vault to `Cancelled`. |
 | `get_vault_state` | No | Reads a vault record, returning `None` for an unknown id. |
 | `vault_count` | No | Returns the number of vault ids assigned so far. |
 
@@ -37,20 +38,24 @@ and the backend mapping in [`src/doc.md`](src/doc.md#error-handling).
 | `4` | `InvalidTimestamp` | `create_vault`, `redirect_funds` | `create_vault` receives a `start_timestamp` earlier than the current ledger timestamp, or `redirect_funds` is called at or before `end_timestamp`. The exact deadline case returns `#4`. |
 | `5` | `MilestoneExpired` | `validate_milestone` | The current ledger timestamp is greater than or equal to `end_timestamp`, so validation is no longer allowed. |
 | `6` | `InvalidStatus` | None in the current implementation | Reserved by the enum for invalid-status flows. Current state-changing entrypoints use `VaultNotActive` for non-`Active` vault states. |
-| `7` | `InvalidAmount` | `create_vault` | `amount` is below `MIN_AMOUNT` or above `MAX_AMOUNT`. This covers zero, negative, and over-maximum amounts. |
+| `7` | `InvalidAmount` | `create_vault`, `release_partial` | `create_vault` amount is below `MIN_AMOUNT` or above `MAX_AMOUNT`, or a partial release amount is zero, negative, or greater than the vault's remaining balance. |
 | `8` | `InvalidTimestamps` | `create_vault` | `end_timestamp` is less than or equal to `start_timestamp`. |
 | `9` | `DurationTooLong` | `create_vault` | `end_timestamp - start_timestamp` exceeds `MAX_VAULT_DURATION` (365 days). |
 
 ## Vault Lifecycle
 
 Vault records are never deleted by normal contract operation. A vault starts in
-`Active`; `Completed`, `Failed`, and `Cancelled` are terminal states.
+`Active`; `Completed`, `Failed`, and `Cancelled` are terminal states. Each vault
+stores its original `amount` and a mutable `remaining_amount` so partial success
+releases cannot pay out more than the escrowed balance.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Active: create_vault
     Active --> Active: validate_milestone / milestone_validated = true
+    Active --> Active: release_partial / remaining_amount > 0
     Active --> Completed: release_funds / success_destination receives funds
+    Active --> Completed: release_partial / remaining_amount = 0
     Active --> Failed: redirect_funds / failure_destination receives funds
     Active --> Cancelled: cancel_vault / creator receives refund
     Completed --> [*]
@@ -62,12 +67,16 @@ stateDiagram-v2
 | --- | --- | --- | --- | --- |
 | None | `Active` | `create_vault` | Creator authorizes; amount and timestamps are valid; duration is within the maximum; token transfer into the contract succeeds. | `vault_created` |
 | `Active` | `Active` | `validate_milestone` | Vault exists, is active, caller is the configured verifier or creator fallback, and ledger time is before `end_timestamp`. | `milestone_validated` |
-| `Active` | `Completed` | `release_funds` | Creator authorizes; vault is active; milestone is validated or the deadline has been reached. | `funds_released` |
-| `Active` | `Failed` | `redirect_funds` | Vault is active; ledger time is strictly greater than `end_timestamp`; milestone is not validated. | `funds_redirected` |
-| `Active` | `Cancelled` | `cancel_vault` | Creator authorizes and vault is active. | `vault_cancelled` |
+| `Active` | `Active` | `release_partial` | Creator authorizes; vault is active; milestone is validated or the deadline has been reached; release amount is positive and less than `remaining_amount`. | `funds_released`, `funds_released_partial` |
+| `Active` | `Completed` | `release_funds` / final `release_partial` | Creator authorizes; vault is active; milestone is validated or the deadline has been reached; remaining balance becomes zero. | `funds_released`, `funds_released_partial` for partial API |
+| `Active` | `Failed` | `redirect_funds` | Vault is active; ledger time is strictly greater than `end_timestamp`; milestone is not validated. Only `remaining_amount` is sent. | `funds_redirected` |
+| `Active` | `Cancelled` | `cancel_vault` | Creator authorizes and vault is active. Only `remaining_amount` is refunded. | `vault_cancelled` |
 
 Any attempt to call `validate_milestone`, `release_funds`, `redirect_funds`, or
 `cancel_vault` after a terminal transition returns `VaultNotActive` (`#3`).
+
+See [`docs/PARTIAL_RELEASE.md`](docs/PARTIAL_RELEASE.md) for tranche examples
+and the remaining-balance invariants.
 
 ## Source Of Truth
 

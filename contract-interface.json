@@ -17,6 +17,7 @@
       "fields": [
         { "name": "creator", "type": "Address" },
         { "name": "amount", "type": "i128" },
+        { "name": "remaining_amount", "type": "i128" },
         { "name": "start_timestamp", "type": "u64" },
         { "name": "end_timestamp", "type": "u64" },
         { "name": "milestone_hash", "type": "BytesN<32>" },
@@ -74,6 +75,15 @@
       "outputs": { "type": "Result<bool, Error>" }
     },
     {
+      "name": "release_partial",
+      "inputs": [
+        { "name": "vault_id", "type": "u32" },
+        { "name": "usdc_token", "type": "Address" },
+        { "name": "release_amount", "type": "i128" }
+      ],
+      "outputs": { "type": "Result<bool, Error>" }
+    },
+    {
       "name": "redirect_funds",
       "inputs": [
         { "name": "vault_id", "type": "u32" },
@@ -117,6 +127,11 @@
       "name": "funds_released",
       "topic": ["funds_released", "u32"],
       "data": "i128"
+    },
+    {
+      "name": "funds_released_partial",
+      "topic": ["funds_released_partial", "u32"],
+      "data": "(i128, i128)"
     },
     {
       "name": "funds_redirected",
