@@ -254,6 +254,9 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Release vault funds to `success_destination`.
+    ///
+    /// Applies checks-effects-interactions ordering: the vault is marked
+    /// `Completed` before the external token transfer is invoked.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -277,15 +280,15 @@ impl DisciplrVault {
             return Err(Error::NotAuthorized);
         }
 
+        vault.status = VaultStatus::Completed;
+        env.storage().instance().set(&vault_key, &vault);
+
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
             &vault.success_destination,
             &vault.amount,
         );
-
-        vault.status = VaultStatus::Completed;
-        env.storage().instance().set(&vault_key, &vault);
 
         env.events().publish(
             (Symbol::new(&env, "funds_released"), vault_id),
@@ -299,6 +302,9 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    ///
+    /// Applies checks-effects-interactions ordering: the vault is marked
+    /// `Failed` before the external token transfer is invoked.
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -320,15 +326,15 @@ impl DisciplrVault {
             return Err(Error::NotAuthorized);
         }
 
+        vault.status = VaultStatus::Failed;
+        env.storage().instance().set(&vault_key, &vault);
+
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
             &vault.failure_destination,
             &vault.amount,
         );
-
-        vault.status = VaultStatus::Failed;
-        env.storage().instance().set(&vault_key, &vault);
 
         env.events().publish(
             (Symbol::new(&env, "funds_redirected"), vault_id),
@@ -342,6 +348,9 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Cancel vault and return funds to creator.
+    ///
+    /// Applies checks-effects-interactions ordering: the vault is marked
+    /// `Cancelled` before the external token transfer is invoked.
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -356,15 +365,15 @@ impl DisciplrVault {
             return Err(Error::VaultNotActive);
         }
 
+        vault.status = VaultStatus::Cancelled;
+        env.storage().instance().set(&vault_key, &vault);
+
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
             &vault.creator,
             &vault.amount,
         );
-
-        vault.status = VaultStatus::Cancelled;
-        env.storage().instance().set(&vault_key, &vault);
 
         env.events()
             .publish((Symbol::new(&env, "vault_cancelled"), vault_id), ());
@@ -980,6 +989,94 @@ mod tests {
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Cancelled);
+    }
+
+    #[test]
+    fn release_sets_terminal_status_before_any_second_terminal_path() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let usdc = setup.usdc_client();
+        let success_before = usdc.balance(&setup.success_dest);
+        let failure_before = usdc.balance(&setup.failure_dest);
+
+        assert!(client.release_funds(&vault_id, &setup.usdc_token));
+        assert_eq!(
+            client.get_vault_state(&vault_id).unwrap().status,
+            VaultStatus::Completed
+        );
+
+        assert!(client
+            .try_redirect_funds(&vault_id, &setup.usdc_token)
+            .is_err());
+        assert_eq!(
+            usdc.balance(&setup.success_dest) - success_before,
+            setup.amount
+        );
+        assert_eq!(usdc.balance(&setup.failure_dest), failure_before);
+    }
+
+    #[test]
+    fn redirect_sets_terminal_status_before_any_second_terminal_path() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let usdc = setup.usdc_client();
+        let success_before = usdc.balance(&setup.success_dest);
+        let failure_before = usdc.balance(&setup.failure_dest);
+
+        assert!(client.redirect_funds(&vault_id, &setup.usdc_token));
+        assert_eq!(
+            client.get_vault_state(&vault_id).unwrap().status,
+            VaultStatus::Failed
+        );
+
+        assert!(client
+            .try_release_funds(&vault_id, &setup.usdc_token)
+            .is_err());
+        assert_eq!(usdc.balance(&setup.success_dest), success_before);
+        assert_eq!(
+            usdc.balance(&setup.failure_dest) - failure_before,
+            setup.amount
+        );
+    }
+
+    #[test]
+    fn cancel_sets_terminal_status_before_any_second_terminal_path() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        let usdc = setup.usdc_client();
+        let creator_before = usdc.balance(&setup.creator);
+        let success_before = usdc.balance(&setup.success_dest);
+        let failure_before = usdc.balance(&setup.failure_dest);
+
+        assert!(client.cancel_vault(&vault_id, &setup.usdc_token));
+        assert_eq!(
+            client.get_vault_state(&vault_id).unwrap().status,
+            VaultStatus::Cancelled
+        );
+
+        assert!(client
+            .try_release_funds(&vault_id, &setup.usdc_token)
+            .is_err());
+        assert!(client
+            .try_redirect_funds(&vault_id, &setup.usdc_token)
+            .is_err());
+        assert_eq!(usdc.balance(&setup.creator) - creator_before, setup.amount);
+        assert_eq!(usdc.balance(&setup.success_dest), success_before);
+        assert_eq!(usdc.balance(&setup.failure_dest), failure_before);
     }
 
     // -----------------------------------------------------------------------

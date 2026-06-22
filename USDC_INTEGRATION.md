@@ -107,6 +107,8 @@ The contract cannot guarantee:
 
 - The `usdc_token` address is supplied at call time and is not pinned inside vault state.
 - The integrated token contract is therefore part of the effective security boundary.
+- Settlement paths use checks-effects-interactions ordering so terminal status is
+  persisted before the token transfer call.
 - Production review should include both the Disciplr contract and the chosen Stellar USDC asset configuration.
 
 ## Related Documentation
@@ -114,6 +116,7 @@ The contract cannot guarantee:
 - [README.md](README.md)
 - [vesting.md](vesting.md)
 - [src/lib.rs](src/lib.rs)
+- [docs/SECURITY_REENTRANCY.md](docs/SECURITY_REENTRANCY.md)
 
 ## Primary References
 
