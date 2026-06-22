@@ -49,6 +49,24 @@ Explicit edge vectors included:
 - `duration == MAX_VAULT_DURATION` (accept)
 - `start == now` (accept)
 
+## Scoped Authorization Tests for Milestone Validation (Issue #228)
+
+File: `tests/validate_auth.rs`
+
+What is validated:
+
+- **Designated verifier only**: when a vault has `Some(verifier)`, a stranger-signed validation attempt is rejected and leaves `milestone_validated == false`.
+- **Creator-only validation**: when a vault has `None` for verifier, a non-creator is rejected and the vault remains active and unvalidated.
+- **Authorized success paths**: the designated verifier and creator-only validator both succeed before the deadline.
+- **Creator as explicit verifier**: `Some(creator)` still rejects stranger auth.
+- **Auth-before-expiry ordering**: an expired vault still requires the authorized validator before surfacing the expiry failure.
+
+Strategy design:
+
+- Vault setup uses broad mock auth only for creation and token funding.
+- Each validation call replaces setup auth with a single scoped `mock_auths` entry for the signer under test.
+- Rejection tests assert unchanged state through `get_vault_state`.
+
 
 - **32 comprehensive tests** - All passing
 - **92.16% line coverage** (47/51 lines)

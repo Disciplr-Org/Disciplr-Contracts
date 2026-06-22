@@ -138,6 +138,21 @@ The contract supports two ways for creators to validate their own milestones:
 
 Both are functionally equivalent in terms of who can validate, but the explicit designation (`Some(creator)`) makes the intent clearer in the vault's state.
 
+## Negative Authorization Coverage
+
+The scoped-auth suite in `tests/validate_auth.rs` complements this positive
+same-as-creator test. It proves that:
+
+- a stranger cannot validate a vault configured with `Some(verifier)`;
+- a stranger cannot validate a creator-only vault configured with `None`;
+- a stranger cannot validate when the creator is explicitly set as verifier;
+- failed validation attempts leave `milestone_validated` false and the vault
+  `Active`.
+
+Those tests use per-call `mock_auths` instead of `mock_all_auths()` for the
+validation step, so the contract's `require_auth()` branches are actually
+exercised.
+
 ### Timestamp Validation
 
 The test confirms that even when verifier == creator, the time-lock constraints are still enforced:
