@@ -58,8 +58,10 @@ pub enum VaultStatus {
 pub struct ProductivityVault {
     /// Address that created (and funded) the vault.
     pub creator: Address,
-    /// USDC amount locked in the vault (in stroops / smallest unit).
+    /// Original USDC amount locked in the vault (in stroops / smallest unit).
     pub amount: i128,
+    /// Remaining unreleased balance still held by the vault.
+    pub remaining: i128,
     /// Ledger timestamp when the commitment period starts.
     pub start_timestamp: u64,
     /// Ledger timestamp after which deadline-based release is allowed.
@@ -186,6 +188,7 @@ impl DisciplrVault {
         let vault = ProductivityVault {
             creator,
             amount,
+            remaining: amount,
             start_timestamp,
             end_timestamp,
             milestone_hash,
@@ -253,8 +256,42 @@ impl DisciplrVault {
     // release_funds
     // -----------------------------------------------------------------------
 
-    /// Release vault funds to `success_destination`.
+    /// Release all remaining vault funds to `success_destination`.
+    ///
+    /// Preserves the legacy all-or-nothing behavior for callers that do not
+    /// need tranche releases: the full remaining balance is paid and the vault
+    /// moves to `Completed`.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
+        let vault_key = DataKey::Vault(vault_id);
+        let vault: ProductivityVault = env
+            .storage()
+            .instance()
+            .get(&vault_key)
+            .ok_or(Error::VaultNotFound)?;
+
+        Self::release_success_amount(env, vault_id, usdc_token, vault.remaining, false)
+    }
+
+    /// Release a partial tranche of vault funds to `success_destination`.
+    ///
+    /// The vault remains `Active` while `remaining > 0` and transitions to
+    /// `Completed` only when the final tranche drains the balance.
+    pub fn release_partial(
+        env: Env,
+        vault_id: u32,
+        usdc_token: Address,
+        release_amount: i128,
+    ) -> Result<bool, Error> {
+        Self::release_success_amount(env, vault_id, usdc_token, release_amount, true)
+    }
+
+    fn release_success_amount(
+        env: Env,
+        vault_id: u32,
+        usdc_token: Address,
+        release_amount: i128,
+        partial_event: bool,
+    ) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
             .storage()
@@ -265,10 +302,9 @@ impl DisciplrVault {
         vault.creator.require_auth();
 
         if vault.status != VaultStatus::Active {
-            return Err(Error::VaultNotActive); // Or InvalidStatus as appropriate
+            return Err(Error::VaultNotActive);
         }
 
-        // Check release conditions.
         let now = env.ledger().timestamp();
         let deadline_reached = now >= vault.end_timestamp;
         let validated = vault.milestone_validated;
@@ -277,20 +313,39 @@ impl DisciplrVault {
             return Err(Error::NotAuthorized);
         }
 
+        if release_amount <= 0 || release_amount > vault.remaining {
+            return Err(Error::InvalidAmount);
+        }
+
+        let remaining = vault
+            .remaining
+            .checked_sub(release_amount)
+            .ok_or(Error::InvalidAmount)?;
+
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(
             &env.current_contract_address(),
             &vault.success_destination,
-            &vault.amount,
+            &release_amount,
         );
 
-        vault.status = VaultStatus::Completed;
+        vault.remaining = remaining;
+        if vault.remaining == 0 {
+            vault.status = VaultStatus::Completed;
+        }
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_released"), vault_id),
-            vault.amount,
-        );
+        if partial_event {
+            env.events().publish(
+                (Symbol::new(&env, "funds_released_partial"), vault_id),
+                (release_amount, vault.remaining),
+            );
+        } else {
+            env.events().publish(
+                (Symbol::new(&env, "funds_released"), vault_id),
+                release_amount,
+            );
+        }
         Ok(true)
     }
 
@@ -324,9 +379,10 @@ impl DisciplrVault {
         token_client.transfer(
             &env.current_contract_address(),
             &vault.failure_destination,
-            &vault.amount,
+            &vault.remaining,
         );
 
+        vault.remaining = 0;
         vault.status = VaultStatus::Failed;
         env.storage().instance().set(&vault_key, &vault);
 
@@ -360,9 +416,10 @@ impl DisciplrVault {
         token_client.transfer(
             &env.current_contract_address(),
             &vault.creator,
-            &vault.amount,
+            &vault.remaining,
         );
 
+        vault.remaining = 0;
         vault.status = VaultStatus::Cancelled;
         env.storage().instance().set(&vault_key, &vault);
 
@@ -529,6 +586,7 @@ mod tests {
         let vault = vault_state.unwrap();
         assert_eq!(vault.creator, setup.creator);
         assert_eq!(vault.amount, setup.amount);
+        assert_eq!(vault.remaining, setup.amount);
         assert_eq!(vault.start_timestamp, setup.start_timestamp);
         assert_eq!(vault.end_timestamp, setup.end_timestamp);
         assert_eq!(vault.milestone_hash, setup.milestone_hash());
@@ -848,6 +906,133 @@ mod tests {
 
         let vault = client.get_vault_state(&vault_id).unwrap();
         assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
+    fn test_release_partial_after_validation_keeps_vault_active() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+
+        let usdc = setup.usdc_client();
+        let success_before = usdc.balance(&setup.success_dest);
+        let partial = setup.amount / 2;
+
+        let result = client.release_partial(&vault_id, &setup.usdc_token, &partial);
+        assert!(result);
+
+        let success_after = usdc.balance(&setup.success_dest);
+        assert_eq!(success_after - success_before, partial);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Active);
+        assert_eq!(vault.amount, setup.amount);
+        assert_eq!(vault.remaining, setup.amount - partial);
+    }
+
+    #[test]
+    fn test_release_partial_final_tranche_completes_vault() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+
+        let usdc = setup.usdc_client();
+        let success_before = usdc.balance(&setup.success_dest);
+        let first = setup.amount / 2;
+        let second = setup.amount - first;
+
+        assert!(client.release_partial(&vault_id, &setup.usdc_token, &first));
+        assert!(client.release_partial(&vault_id, &setup.usdc_token, &second));
+
+        assert_eq!(
+            usdc.balance(&setup.success_dest) - success_before,
+            setup.amount
+        );
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+        assert_eq!(vault.remaining, 0);
+    }
+
+    #[test]
+    fn test_release_funds_after_partial_releases_remaining() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+
+        let usdc = setup.usdc_client();
+        let success_before = usdc.balance(&setup.success_dest);
+        let partial = setup.amount / 4;
+
+        assert!(client.release_partial(&vault_id, &setup.usdc_token, &partial));
+        assert!(client.release_funds(&vault_id, &setup.usdc_token));
+
+        assert_eq!(
+            usdc.balance(&setup.success_dest) - success_before,
+            setup.amount
+        );
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+        assert_eq!(vault.remaining, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #7)")]
+    fn test_release_partial_zero_amount_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+
+        client.release_partial(&vault_id, &setup.usdc_token, &0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #7)")]
+    fn test_release_partial_over_remaining_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+
+        client.release_partial(&vault_id, &setup.usdc_token, &(setup.amount + 1));
+    }
+
+    #[test]
+    fn test_cancel_after_partial_returns_only_remaining() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+
+        let partial = setup.amount / 2;
+        assert!(client.release_partial(&vault_id, &setup.usdc_token, &partial));
+
+        let usdc = setup.usdc_client();
+        let creator_before = usdc.balance(&setup.creator);
+        assert!(client.cancel_vault(&vault_id, &setup.usdc_token));
+        assert_eq!(
+            usdc.balance(&setup.creator) - creator_before,
+            setup.amount - partial
+        );
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Cancelled);
+        assert_eq!(vault.remaining, 0);
     }
 
     #[test]

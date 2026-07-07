@@ -279,7 +279,6 @@ fn edge_start_eq_now_succeeds() {
     assert_eq!(vault.end_timestamp, end);
 }
 
-
 #[test]
 fn edge_start_eq_end_rejected() {
     let (env, client, usdc, usdc_asset) = setup();

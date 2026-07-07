@@ -16,7 +16,8 @@ and the machine-readable interface lives in
 | --- | --- | --- |
 | `create_vault` | Yes | Creates and funds a new vault, assigns a sequential vault id, and starts it in `Active`. |
 | `validate_milestone` | Yes | Marks an `Active` vault milestone as validated before the deadline. |
-| `release_funds` | Yes | Sends funds to `success_destination` and moves the vault to `Completed`. |
+| `release_funds` | Yes | Sends all remaining funds to `success_destination` and moves the vault to `Completed`. |
+| `release_partial` | Yes | Sends a tranche to `success_destination`; keeps the vault `Active` until `remaining` reaches zero. |
 | `redirect_funds` | Yes | Sends funds to `failure_destination` and moves the vault to `Failed`. |
 | `cancel_vault` | Yes | Returns funds to the creator and moves the vault to `Cancelled`. |
 | `get_vault_state` | No | Reads a vault record, returning `None` for an unknown id. |
@@ -77,3 +78,8 @@ Any attempt to call `validate_milestone`, `release_funds`, `redirect_funds`, or
   for integrators and tooling.
 - [`src/doc.md`](src/doc.md) maps these contract semantics to backend API
   payloads and HTTP error responses.
+
+
+## Partial Releases
+
+See [docs/PARTIAL_RELEASE.md](docs/PARTIAL_RELEASE.md) for tranche release behavior, examples, and safety rules.
