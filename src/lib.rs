@@ -947,6 +947,23 @@ mod tests {
     }
 
     #[test]
+    fn test_redirect_funds_on_cancelled_vault_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.cancel_vault(&vault_id, &setup.usdc_token);
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let result = client.try_redirect_funds(&vault_id, &setup.usdc_token);
+        match result {
+            Err(Ok(Error::VaultNotActive)) => {}
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_double_redirect_rejected() {
         let setup = TestSetup::new();
         let client = setup.client();
