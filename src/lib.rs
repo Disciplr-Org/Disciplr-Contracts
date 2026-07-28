@@ -1060,39 +1060,6 @@ mod tests {
     }
 
     #[test]
-    fn test_vault_parameters_with_and_without_verifier() {
-        let _verifier_some: Option<Address> = None;
-        let _no_verifier: Option<Address> = None;
-        assert!(_verifier_some.is_none());
-        assert!(_no_verifier.is_none());
-    }
-
-    #[test]
-    fn test_vault_amount_parameters() {
-        let amounts = [100i128, 1000, 10000, 100000];
-        for amount in amounts {
-            assert!(amount > 0, "Amount {} should be positive", amount);
-        }
-    }
-
-    #[test]
-    fn test_vault_timestamp_scenarios() {
-        let start = 100u64;
-        let end = 200u64;
-        assert!(start < end, "Start should be before end");
-    }
-
-    #[test]
-    fn test_vault_milestone_hash_generation() {
-        let env = Env::default();
-        let _hash_1 = BytesN::<32>::from_array(&env, &[0u8; 32]);
-        let _hash_2 = BytesN::<32>::from_array(&env, &[1u8; 32]);
-        let _hash_3 = BytesN::<32>::from_array(&env, &[255u8; 32]);
-        assert_ne!([0u8; 32], [1u8; 32]);
-        assert_ne!([1u8; 32], [255u8; 32]);
-    }
-
-    #[test]
     #[should_panic]
     fn test_authorization_prevents_unauthorized_creation() {
         let env = Env::default();
