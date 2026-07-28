@@ -2,6 +2,23 @@
   "name": "disciplr-vault",
   "version": "0.1.0",
   "description": "Programmable time-locked USDC vaults on Stellar",
+  "constants": {
+    "MIN_AMOUNT": {
+      "type": "i128",
+      "value": "10000000",
+      "description": "Minimum vault amount in stroops (1 USDC)"
+    },
+    "MAX_AMOUNT": {
+      "type": "i128",
+      "value": "10000000000000",
+      "description": "Maximum vault amount in stroops (10,000,000 USDC)"
+    },
+    "MAX_VAULT_DURATION": {
+      "type": "u64",
+      "value": 31536000,
+      "description": "Maximum vault duration in seconds (365 days)"
+    }
+  },
   "types": {
     "VaultStatus": {
       "type": "enum",
