@@ -982,6 +982,42 @@ mod tests {
         assert_eq!(vault.status, VaultStatus::Cancelled);
     }
 
+    #[test]
+    fn test_cancel_vault_emits_event() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        client.cancel_vault(&vault_id, &setup.usdc_token);
+
+        let all_events = setup.env.events().all();
+        let mut found_vault_cancelled = false;
+        for (emitting_contract, topics, _) in all_events {
+            if emitting_contract == setup.contract_id {
+                let event_name: Symbol = topics
+                    .get(0)
+                    .unwrap()
+                    .try_into_val(&setup.env)
+                    .unwrap();
+                if event_name == Symbol::new(&setup.env, "vault_cancelled") {
+                    let event_vault_id: u32 = topics
+                        .get(1)
+                        .unwrap()
+                        .try_into_val(&setup.env)
+                        .unwrap();
+                    assert_eq!(event_vault_id, vault_id);
+                    found_vault_cancelled = true;
+                }
+            }
+        }
+        assert!(
+            found_vault_cancelled,
+            "vault_cancelled event must be emitted"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // More upstream tests migrated
     // -----------------------------------------------------------------------
