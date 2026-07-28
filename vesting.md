@@ -78,6 +78,7 @@ Creates a new productivity vault and locks USDC funds.
 ```rust
 pub fn create_vault(
     env: Env,
+    usdc_token: Address,
     creator: Address,
     amount: i128,
     start_timestamp: u64,
@@ -86,10 +87,11 @@ pub fn create_vault(
     verifier: Option<Address>,
     success_destination: Address,
     failure_destination: Address,
-) -> u32
+) -> Result<u32, Error>
 ```
 
 **Parameters:**
+- `usdc_token`: Address of the USDC token contract to transfer from and later release or redirect
 - `creator`: Address of the vault creator (must authorize transaction)
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
@@ -366,10 +368,12 @@ let milestone_hash: BytesN<32> = BytesN::from_array(&env, &[
 let verifier: Option<Address> = Some(Address::from_string("GB7..."));
 let success_destination: Address = Address::from_string("GC7..."); // Project wallet
 let failure_destination: Address = Address::from_string("GD7..."); // Funder wallet
+let usdc_token: Address = Address::from_string("GE7..."); // USDC token contract
 
 // Create vault
 let vault_id = DisciplrVaultClient::new(&env, &contract_address)
     .create_vault(
+        &usdc_token,
         &creator,
         &amount,
         &start_timestamp,
