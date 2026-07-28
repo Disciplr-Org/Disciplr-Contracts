@@ -332,13 +332,12 @@ This section outlines the security properties, trust assumptions, and known limi
 
 ### Recommendations for Production
 
-1. **Use Soroban Token Interface**: Implement standard token operations for USDC
-2. **Add Access Control**: Implement `Ownable` pattern for admin functions
-3. **Circuit Breaker**: Add emergency pause functionality
-4. **Upgradeability**: Consider proxy pattern for contract upgrades
-5. **Comprehensive Tests**: Achieve 95%+ test coverage
-6. **External Audits**: Have security experts review before mainnet deployment
-7. **Multisig Verifiers**: For high-value vaults, use a multisig address as the `verifier`
+1. **Pin or Validate Token Addresses**: Persist the expected USDC token address per vault, or otherwise constrain release/redirect calls so callers cannot supply an unexpected token contract.
+2. **Review CEI Ordering**: Move state updates before token transfers where practical, or document why Soroban atomicity is sufficient for each transfer path.
+3. **Circuit Breaker**: Add emergency pause functionality for incident response.
+4. **Upgradeability**: Consider whether the deployment needs an upgrade pattern or an explicit immutable-contract policy.
+5. **External Audits**: Have security experts review before mainnet deployment.
+6. **Multisig Verifiers**: For high-value vaults, use a multisig address as the `verifier`.
 
 ---
 
