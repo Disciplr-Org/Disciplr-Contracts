@@ -1,0 +1,15 @@
+# Review routing for Disciplr Vault changes.
+#
+# Replace @1nonlypiece with an org team such as
+# @Disciplr-Org/maintainers if/when that team is available publicly.
+
+* @1nonlypiece
+
+/src/ @1nonlypiece
+/tests/ @1nonlypiece
+/docs/ @1nonlypiece
+/.github/workflows/ @1nonlypiece
+/contract-interface.json @1nonlypiece
+/Cargo.toml @1nonlypiece
+/Cargo.lock @1nonlypiece
+
