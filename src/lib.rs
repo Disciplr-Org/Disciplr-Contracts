@@ -828,6 +828,42 @@ mod tests {
     }
 
     #[test]
+    fn test_release_funds_emits_event_with_amount() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        client.validate_milestone(&vault_id);
+
+        client.release_funds(&vault_id, &setup.usdc_token);
+
+        let all_events = setup.env.events().all();
+        let mut found_funds_released = false;
+        for (emitting_contract, topics, data) in all_events {
+            if emitting_contract == setup.contract_id {
+                let event_name: Symbol = topics
+                    .get(0)
+                    .unwrap()
+                    .try_into_val(&setup.env)
+                    .unwrap();
+                if event_name == Symbol::new(&setup.env, "funds_released") {
+                    let event_vault_id: u32 = topics
+                        .get(1)
+                        .unwrap()
+                        .try_into_val(&setup.env)
+                        .unwrap();
+                    let event_amount: i128 = data.try_into_val(&setup.env).unwrap();
+                    assert_eq!(event_vault_id, vault_id);
+                    assert_eq!(event_amount, setup.amount);
+                    found_funds_released = true;
+                }
+            }
+        }
+        assert!(found_funds_released, "funds_released event must be emitted");
+    }
+
+    #[test]
     fn test_release_funds_after_deadline() {
         let setup = TestSetup::new();
         let client = setup.client();
