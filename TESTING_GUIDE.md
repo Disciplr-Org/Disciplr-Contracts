@@ -49,6 +49,13 @@ Explicit edge vectors included:
 - `duration == MAX_VAULT_DURATION` (accept)
 - `start == now` (accept)
 
+## Proptest Regression Seeds
+
+Property-test regression seeds are intentionally kept under
+`proptest-regressions/`. If a local or CI run finds a real failing input and
+proptest writes a regression file there, commit that file with the fix so future
+runs replay the case deterministically.
+
 
 - **32 comprehensive tests** - All passing
 - **92.16% line coverage** (47/51 lines)
