@@ -116,3 +116,40 @@ fn test_full_lifecycle_failure_redirection() {
     assert_eq!(final_state.status, VaultStatus::Failed);
     assert_eq!(usdc_token.balance(&failure_dest), MIN_AMOUNT);
 }
+
+#[test]
+fn test_full_lifecycle_cancellation() {
+    let (env, client, usdc, usdc_asset, usdc_token) = setup();
+
+    let creator = Address::generate(&env);
+    let success_dest = Address::generate(&env);
+    let failure_dest = Address::generate(&env);
+    let now = 1_700_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    usdc_asset.mint(&creator, &MIN_AMOUNT);
+
+    let milestone = BytesN::from_array(&env, &[1u8; 32]);
+
+    // 1. Create Vault
+    let vault_id = client.create_vault(
+        &usdc,
+        &creator,
+        &MIN_AMOUNT,
+        &now,
+        &(now + 86_400),
+        &milestone,
+        &None,
+        &success_dest,
+        &failure_dest,
+    );
+
+    assert_eq!(usdc_token.balance(&creator), 0);
+
+    // 2. Cancel before any terminal transition
+    client.cancel_vault(&vault_id, &usdc);
+
+    let final_state = client.get_vault_state(&vault_id).unwrap();
+    assert_eq!(final_state.status, VaultStatus::Cancelled);
+    assert_eq!(usdc_token.balance(&creator), MIN_AMOUNT);
+}
