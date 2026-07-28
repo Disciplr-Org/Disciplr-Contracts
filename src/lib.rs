@@ -217,6 +217,9 @@ impl DisciplrVault {
     /// **Optional verifier behavior:** If `verifier` is `Some(addr)`, only that address may call
     /// this function. If `verifier` is `None`, only the creator may call it (no validation by
     /// other parties). Rejects when current time >= end_timestamp (MilestoneExpired).
+    /// Repeated successful calls before the deadline are state-idempotent: the vault remains
+    /// `Active` with `milestone_validated = true`, and each successful call publishes the
+    /// `milestone_validated` event.
     pub fn validate_milestone(env: Env, vault_id: u32) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
@@ -687,6 +690,45 @@ mod tests {
         // Validation now sets milestone_validated, NOT status = Completed
         assert!(vault.milestone_validated);
         assert_eq!(vault.status, VaultStatus::Active);
+    }
+
+    #[test]
+    fn test_validate_milestone_repeated_calls_are_state_idempotent() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+
+        assert!(client.validate_milestone(&vault_id));
+        assert!(client.validate_milestone(&vault_id));
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert!(vault.milestone_validated);
+        assert_eq!(vault.status, VaultStatus::Active);
+
+        let all_events = setup.env.events().all();
+        let mut milestone_validated_events = 0u32;
+        for (emitting_contract, topics, _) in all_events {
+            if emitting_contract == setup.contract_id {
+                let event_name: Symbol = topics
+                    .get(0)
+                    .unwrap()
+                    .try_into_val(&setup.env)
+                    .unwrap();
+                if event_name == Symbol::new(&setup.env, "milestone_validated") {
+                    let event_vault_id: u32 = topics
+                        .get(1)
+                        .unwrap()
+                        .try_into_val(&setup.env)
+                        .unwrap();
+                    assert_eq!(event_vault_id, vault_id);
+                    milestone_validated_events += 1;
+                }
+            }
+        }
+        assert_eq!(milestone_validated_events, 2);
     }
 
     /// Issue #14: When verifier is None, only creator may validate. Creator succeeds.
