@@ -851,6 +851,29 @@ mod tests {
     }
 
     #[test]
+    fn test_release_funds_at_exact_deadline() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        // The release deadline is inclusive: now >= end_timestamp.
+        setup.env.ledger().set_timestamp(setup.end_timestamp);
+
+        let usdc = setup.usdc_client();
+        let before = usdc.balance(&setup.success_dest);
+
+        let result = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(result);
+
+        assert_eq!(usdc.balance(&setup.success_dest) - before, setup.amount);
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
     fn test_double_release_rejected() {
         let setup = TestSetup::new();
         let client = setup.client();
