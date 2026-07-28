@@ -801,6 +801,24 @@ mod tests {
     }
 
     #[test]
+    fn test_vault_count_tracks_created_vaults() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        assert_eq!(client.vault_count(), 0);
+
+        // Mint extra USDC for the second vault.
+        let usdc_asset = StellarAssetClient::new(&setup.env, &setup.usdc_token);
+        usdc_asset.mint(&setup.creator, &setup.amount);
+
+        setup.create_default_vault();
+        assert_eq!(client.vault_count(), 1);
+
+        setup.create_default_vault();
+        assert_eq!(client.vault_count(), 2);
+    }
+
+    #[test]
     fn test_release_funds_after_validation() {
         let setup = TestSetup::new();
         let client = setup.client();
