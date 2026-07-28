@@ -517,6 +517,19 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn test_error_discriminants_are_stable() {
+        assert_eq!(Error::VaultNotFound as u32, 1);
+        assert_eq!(Error::NotAuthorized as u32, 2);
+        assert_eq!(Error::VaultNotActive as u32, 3);
+        assert_eq!(Error::InvalidTimestamp as u32, 4);
+        assert_eq!(Error::MilestoneExpired as u32, 5);
+        assert_eq!(Error::InvalidStatus as u32, 6);
+        assert_eq!(Error::InvalidAmount as u32, 7);
+        assert_eq!(Error::InvalidTimestamps as u32, 8);
+        assert_eq!(Error::DurationTooLong as u32, 9);
+    }
+
+    #[test]
     fn get_vault_state_returns_some_with_matching_fields() {
         let setup = TestSetup::new();
         let client = setup.client();
