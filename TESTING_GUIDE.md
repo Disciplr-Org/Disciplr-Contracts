@@ -59,42 +59,42 @@ See [COVERAGE_ANALYSIS.md](./COVERAGE_ANALYSIS.md) for detailed breakdown.
 
 ## Test Categories
 
-### 1. Valid State Transitions (4 tests)
+### 1. Valid State Transitions
 
 Tests all valid vault state changes:
 
 ```bash
-cargo test test_active_to_completed
-cargo test test_active_to_failed
-cargo test test_active_to_cancelled
+cargo test test_release_funds_after_validation
+cargo test test_redirect_funds_after_deadline_without_validation
+cargo test test_cancel_vault_returns_funds_to_creator
 ```
 
-### 2. Terminal State Protection (12 tests)
+### 2. Terminal State Protection
 
 Security tests ensuring terminal states are immutable:
 
 ```bash
-cargo test test_completed_cannot
-cargo test test_failed_cannot
-cargo test test_cancelled_cannot
+cargo test test_cancel_vault_when_completed_fails
+cargo test test_cancel_vault_when_failed_fails
+cargo test test_cancel_vault_when_cancelled_fails
 ```
 
-### 3. Event Emission (6 tests)
+### 3. Event Emission
 
 Verifies audit trail logging:
 
 ```bash
-cargo test test_.*_emits_event
+cargo test test_create_vault_emits_event_and_returns_id
 ```
 
-### 4. Data Integrity (10 tests)
+### 4. Data Integrity
 
 Edge cases and comprehensive validation:
 
 ```bash
-cargo test test_vault_creation
-cargo test test_vault_data_integrity
-cargo test test_sequential_operations
+cargo test test_create_vault
+cargo test test_get_vault_state
+cargo test test_vault_
 ```
 
 ## Coverage Reports
