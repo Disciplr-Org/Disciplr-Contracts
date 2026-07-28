@@ -5,7 +5,6 @@ output-dir = "coverage"
 
 [run]
 all-features = true
-workspace = true
 
 # Exclude test-only modules from coverage denominator so the 95 % threshold
 # reflects production logic only, not test helper code.
