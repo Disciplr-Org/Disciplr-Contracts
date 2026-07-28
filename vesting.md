@@ -477,13 +477,40 @@ Expected output should include tests for:
 
 ```
 disciplr-contracts/
-├── src/
-│   └── lib.rs           # DisciplrVault contract implementation
-├── tests/
-│   └── create_vault.rs  # Integration tests for create_vault
-├── Cargo.toml           # Project dependencies
-├── README.md            # Project overview
-└── vesting.md           # This documentation
+|-- .cargo/
+|   `-- audit.toml
+|-- .github/
+|   `-- workflows/
+|       |-- ci.yml
+|       `-- coverage.yml
+|-- docs/
+|   `-- MERGE_HYGIENE.md
+|-- src/
+|   |-- doc.md
+|   `-- lib.rs
+|-- tests/
+|   |-- create_vault.rs
+|   |-- lifecycle.rs
+|   |-- proptest_amounts.rs
+|   `-- proptest_timestamps.rs
+|-- test_snapshots/
+|   `-- ... generated test snapshots
+|-- Cargo.toml
+|-- Cargo.lock
+|-- contract-interface.json
+|-- README.md
+|-- vesting.md
+|-- USDC_INTEGRATION.md
+|-- TESTING_GUIDE.md
+|-- CHANGELOG.md
+|-- COVERAGE_ANALYSIS.md
+|-- COVERAGE_REPORT.md
+|-- TEST_SUMMARY.md
+|-- TEST_VERIFIER_SAME_AS_CREATOR.md
+|-- README_CANCEL_VAULT.md
+|-- Documentation_validate_milestone_wrong_status.md
+|-- rustfmt.toml
+`-- tarpaulin.toml
 ```
 
 ---
