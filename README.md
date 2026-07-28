@@ -10,6 +10,9 @@ implementation. Backend integration payload examples live in [`src/doc.md`](src/
 and the machine-readable interface lives in
 [`contract-interface.json`](contract-interface.json).
 
+Contributor setup, testing commands, review expectations, and bounty workflow
+notes are collected in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Contract Entrypoints
 
 | Entrypoint | Mutates state | Purpose |
