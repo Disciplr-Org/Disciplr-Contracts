@@ -1,7 +1,6 @@
 #![no_std]
 #![deny(warnings)]
 #![cfg_attr(test, allow(warnings))]
-#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
@@ -132,6 +131,7 @@ impl DisciplrVault {
     ///
     /// # Prerequisites
     /// Creator must have sufficient USDC balance and authorize the transaction.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_vault(
         env: Env,
         usdc_token: Address,
