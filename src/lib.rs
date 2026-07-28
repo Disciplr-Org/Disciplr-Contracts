@@ -933,6 +933,45 @@ mod tests {
     }
 
     #[test]
+    fn test_redirect_funds_emits_event_with_amount() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        client.redirect_funds(&vault_id, &setup.usdc_token);
+
+        let all_events = setup.env.events().all();
+        let mut found_funds_redirected = false;
+        for (emitting_contract, topics, data) in all_events {
+            if emitting_contract == setup.contract_id {
+                let event_name: Symbol = topics
+                    .get(0)
+                    .unwrap()
+                    .try_into_val(&setup.env)
+                    .unwrap();
+                if event_name == Symbol::new(&setup.env, "funds_redirected") {
+                    let event_vault_id: u32 = topics
+                        .get(1)
+                        .unwrap()
+                        .try_into_val(&setup.env)
+                        .unwrap();
+                    let event_amount: i128 = data.try_into_val(&setup.env).unwrap();
+                    assert_eq!(event_vault_id, vault_id);
+                    assert_eq!(event_amount, setup.amount);
+                    found_funds_redirected = true;
+                }
+            }
+        }
+        assert!(
+            found_funds_redirected,
+            "funds_redirected event must be emitted"
+        );
+    }
+
+    #[test]
     fn test_redirect_funds_before_deadline_rejected() {
         let setup = TestSetup::new();
         let client = setup.client();
