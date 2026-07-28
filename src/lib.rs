@@ -689,6 +689,43 @@ mod tests {
         assert_eq!(vault.status, VaultStatus::Active);
     }
 
+    #[test]
+    fn test_validate_milestone_emits_event() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+
+        setup.env.ledger().set_timestamp(setup.end_timestamp - 1);
+        client.validate_milestone(&vault_id);
+
+        let all_events = setup.env.events().all();
+        let mut found_milestone_validated = false;
+        for (emitting_contract, topics, _) in all_events {
+            if emitting_contract == setup.contract_id {
+                let event_name: Symbol = topics
+                    .get(0)
+                    .unwrap()
+                    .try_into_val(&setup.env)
+                    .unwrap();
+                if event_name == Symbol::new(&setup.env, "milestone_validated") {
+                    let event_vault_id: u32 = topics
+                        .get(1)
+                        .unwrap()
+                        .try_into_val(&setup.env)
+                        .unwrap();
+                    assert_eq!(event_vault_id, vault_id);
+                    found_milestone_validated = true;
+                }
+            }
+        }
+        assert!(
+            found_milestone_validated,
+            "milestone_validated event must be emitted"
+        );
+    }
+
     /// Issue #14: When verifier is None, only creator may validate. Creator succeeds.
     #[test]
     fn test_validate_milestone_verifier_none_creator_succeeds() {
