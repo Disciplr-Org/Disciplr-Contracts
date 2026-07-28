@@ -883,6 +883,23 @@ mod tests {
     }
 
     #[test]
+    fn test_release_failed_vault_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+        client.redirect_funds(&vault_id, &setup.usdc_token);
+
+        let result = client.try_release_funds(&vault_id, &setup.usdc_token);
+        match result {
+            Err(Ok(Error::VaultNotActive)) => {}
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_release_not_validated_before_deadline_rejected() {
         let setup = TestSetup::new();
         let client = setup.client();
