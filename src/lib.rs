@@ -517,6 +517,14 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn test_vault_status_discriminants_are_stable() {
+        assert_eq!(VaultStatus::Active as u32, 0);
+        assert_eq!(VaultStatus::Completed as u32, 1);
+        assert_eq!(VaultStatus::Failed as u32, 2);
+        assert_eq!(VaultStatus::Cancelled as u32, 3);
+    }
+
+    #[test]
     fn get_vault_state_returns_some_with_matching_fields() {
         let setup = TestSetup::new();
         let client = setup.client();
