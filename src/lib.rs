@@ -108,6 +108,16 @@ pub const MIN_AMOUNT: i128 = 10_000_000; // 1 USDC
 /// otherwise returns `Error::InvalidAmount`.
 pub const MAX_AMOUNT: i128 = 10_000_000_000_000; // 10M USDC
 
+const EVENT_VAULT_CREATED: &str = "vault_created";
+const EVENT_MILESTONE_VALIDATED: &str = "milestone_validated";
+const EVENT_FUNDS_RELEASED: &str = "funds_released";
+const EVENT_FUNDS_REDIRECTED: &str = "funds_redirected";
+const EVENT_VAULT_CANCELLED: &str = "vault_cancelled";
+
+fn event_topic(env: &Env, event_name: &str, vault_id: u32) -> (Symbol, u32) {
+    (Symbol::new(env, event_name), vault_id)
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -201,7 +211,7 @@ impl DisciplrVault {
             .set(&DataKey::Vault(vault_id), &vault);
 
         env.events().publish(
-            (Symbol::new(&env, "vault_created"), vault_id),
+            event_topic(&env, EVENT_VAULT_CREATED, vault_id),
             vault.clone(),
         );
 
@@ -245,7 +255,7 @@ impl DisciplrVault {
         env.storage().instance().set(&vault_key, &vault);
 
         env.events()
-            .publish((Symbol::new(&env, "milestone_validated"), vault_id), ());
+            .publish(event_topic(&env, EVENT_MILESTONE_VALIDATED, vault_id), ());
         Ok(true)
     }
 
@@ -287,10 +297,8 @@ impl DisciplrVault {
         vault.status = VaultStatus::Completed;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_released"), vault_id),
-            vault.amount,
-        );
+        env.events()
+            .publish(event_topic(&env, EVENT_FUNDS_RELEASED, vault_id), vault.amount);
         Ok(true)
     }
 
@@ -330,10 +338,8 @@ impl DisciplrVault {
         vault.status = VaultStatus::Failed;
         env.storage().instance().set(&vault_key, &vault);
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_redirected"), vault_id),
-            vault.amount,
-        );
+        env.events()
+            .publish(event_topic(&env, EVENT_FUNDS_REDIRECTED, vault_id), vault.amount);
         Ok(true)
     }
 
@@ -367,7 +373,7 @@ impl DisciplrVault {
         env.storage().instance().set(&vault_key, &vault);
 
         env.events()
-            .publish((Symbol::new(&env, "vault_cancelled"), vault_id), ());
+            .publish(event_topic(&env, EVENT_VAULT_CANCELLED, vault_id), ());
         Ok(true)
     }
 
@@ -1187,7 +1193,7 @@ mod tests {
         for (emitting_contract, topics, _) in all_events {
             if emitting_contract == contract_id {
                 let event_name: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-                if event_name == Symbol::new(&env, "vault_created") {
+                if event_name == Symbol::new(&env, EVENT_VAULT_CREATED) {
                     let event_vault_id: u32 = topics.get(1).unwrap().try_into_val(&env).unwrap();
                     assert_eq!(event_vault_id, vault_id);
                     found_vault_created = true;
