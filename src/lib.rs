@@ -912,6 +912,23 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_milestone_on_failed_vault_rejected() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+        client.redirect_funds(&vault_id, &setup.usdc_token);
+
+        let result = client.try_validate_milestone(&vault_id);
+        match result {
+            Err(Ok(Error::VaultNotActive)) => {}
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_redirect_funds_after_deadline_without_validation() {
         let setup = TestSetup::new();
         let client = setup.client();
