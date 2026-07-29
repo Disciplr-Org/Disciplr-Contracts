@@ -591,6 +591,8 @@ All transactions benefit from Stellar's built-in replay protection via sequence 
 | `release_funds` | Anyone | Conditions: validated OR past deadline |
 | `redirect_funds` | Anyone | Conditions: not validated AND past deadline |
 | `cancel_vault` | Creator only | Vault must be Active |
+| `get_vault_state` | Anyone (read-only, no auth) | Returns `Some(ProductivityVault)` for an existing vault id, otherwise `None` |
+| `vault_count` | Anyone (read-only, no auth) | Returns the total number of vault ids assigned so far |
 
 ---
 
