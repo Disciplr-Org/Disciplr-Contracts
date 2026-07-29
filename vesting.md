@@ -78,6 +78,7 @@ Creates a new productivity vault and locks USDC funds.
 ```rust
 pub fn create_vault(
     env: Env,
+    usdc_token: Address,
     creator: Address,
     amount: i128,
     start_timestamp: u64,
@@ -86,10 +87,11 @@ pub fn create_vault(
     verifier: Option<Address>,
     success_destination: Address,
     failure_destination: Address,
-) -> u32
+) -> Result<u32, Error>
 ```
 
 **Parameters:**
+- `usdc_token`: Address of the USDC token contract used to pull escrow funds
 - `creator`: Address of the vault creator (must authorize transaction)
 - `amount`: USDC amount to lock (in stroops)
 - `start_timestamp`: When vault becomes active (unix seconds)
@@ -99,10 +101,11 @@ pub fn create_vault(
 - `success_destination`: Address to receive funds on success
 - `failure_destination`: Address to receive funds on failure
 
-**Returns:** `u32` - Unique vault identifier
+**Returns:** `Result<u32, Error>` - Unique vault identifier on success, or a typed contract error
 
 **Requirements:**
 - Caller must authorize the transaction (`creator.require_auth()`)
+- `usdc_token` must identify the Soroban token contract used for funding
 - `amount` must be within `[MIN_AMOUNT, MAX_AMOUNT]`; otherwise returns `Error::InvalidAmount`
 - `start_timestamp` must be strictly less than `end_timestamp`; otherwise returns `Error::InvalidTimestamps`
 - `end_timestamp - start_timestamp` must not exceed `MAX_VAULT_DURATION`; otherwise returns `Error::DurationTooLong`
@@ -350,6 +353,7 @@ A project owner wants to lock 1000 USDC for a bug bounty program with a 30-day d
 
 ```rust
 // Parameters
+let usdc_token: Address = Address::from_string("GUSDC..."); // USDC token contract
 let creator: Address = Address::from_string("GA7..."); // Creator wallet
 let amount: i128 = 1000 * 10_000_000; // 1000 USDC in stroops
 let start_timestamp: u64 = 1704067200; // Jan 1, 2024 00:00:00 UTC
@@ -370,6 +374,7 @@ let failure_destination: Address = Address::from_string("GD7..."); // Funder wal
 // Create vault
 let vault_id = DisciplrVaultClient::new(&env, &contract_address)
     .create_vault(
+        &usdc_token,
         &creator,
         &amount,
         &start_timestamp,
@@ -379,7 +384,7 @@ let vault_id = DisciplrVaultClient::new(&env, &contract_address)
         &success_destination,
         &failure_destination,
     );
-// vault_id = 0
+// vault_id = Ok(0)
 ```
 
 ### Example 2: Validate Milestone and Release Funds
@@ -389,12 +394,18 @@ The verifier validates that milestone requirements were met and releases funds.
 ```rust
 let verifier: Address = Address::from_string("GB7..."); // Designated verifier
 
-let result = DisciplrVaultClient::new(&env, &contract_address)
+DisciplrVaultClient::new(&env, &contract_address)
     .with_source_account(&verifier)
-    .validate_milestone(&vault_id);
-// result = true
+    .validate_milestone(&vault_id)?;
 
-// Funds now transferred to success_destination
+let creator: Address = Address::from_string("GA7..."); // Original creator
+let usdc_token: Address = Address::from_string("GUSDC..."); // USDC token contract
+let result = DisciplrVaultClient::new(&env, &contract_address)
+    .with_source_account(&creator)
+    .release_funds(&vault_id, &usdc_token);
+// result = Ok(true)
+
+// Funds transferred to success_destination
 // Vault status changed to Completed
 ```
 
@@ -405,9 +416,10 @@ After the deadline passes without milestone validation, funds are redirected.
 ```rust
 // Assume end_timestamp has passed and no validation occurred
 
+let usdc_token: Address = Address::from_string("GUSDC..."); // USDC token contract
 let result = DisciplrVaultClient::new(&env, &contract_address)
-    .redirect_funds(&vault_id);
-// result = true
+    .redirect_funds(&vault_id, &usdc_token);
+// result = Ok(true)
 
 // Funds transferred to failure_destination
 // Vault status changed to Failed
@@ -420,10 +432,11 @@ Creator decides to cancel the vault before the deadline.
 ```rust
 let creator: Address = Address::from_string("GA7..."); // Original creator
 
+let usdc_token: Address = Address::from_string("GUSDC..."); // USDC token contract
 let result = DisciplrVaultClient::new(&env, &contract_address)
     .with_source_account(&creator)
-    .cancel_vault(&vault_id);
-// result = true
+    .cancel_vault(&vault_id, &usdc_token);
+// result = Ok(true)
 
 // Funds returned to creator
 // Vault status changed to Cancelled
