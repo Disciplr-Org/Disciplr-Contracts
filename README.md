@@ -77,3 +77,11 @@ Any attempt to call `validate_milestone`, `release_funds`, `redirect_funds`, or
   for integrators and tooling.
 - [`src/doc.md`](src/doc.md) maps these contract semantics to backend API
   payloads and HTTP error responses.
+- [`vesting.md`](vesting.md) is the trust milestone and escrow workflow guide
+  for contributors and integrators.
+- [`USDC_INTEGRATION.md`](USDC_INTEGRATION.md) is the reference for token
+  wiring and USDC-specific integration expectations.
+- [`TESTING_GUIDE.md`](TESTING_GUIDE.md) is the canonical guide for local test
+  categories, commands, and expected coverage areas.
+- [`CHANGELOG.md`](CHANGELOG.md) records release-level contract, docs, and test
+  changes that downstream consumers should audit before upgrading.
