@@ -298,7 +298,23 @@ impl DisciplrVault {
     // redirect_funds
     // -----------------------------------------------------------------------
 
-    /// Redirect funds to `failure_destination` (e.g. after deadline without validation).
+    /// Redirect funds to `failure_destination` after a vault misses its deadline.
+    ///
+    /// This entrypoint is intentionally permissionless: it does not call
+    /// `require_auth`, because any caller may settle an overdue, unvalidated
+    /// vault into its failure path.
+    ///
+    /// # Preconditions
+    /// - `vault_id` must identify an existing vault.
+    /// - The vault must still be `VaultStatus::Active`.
+    /// - The current ledger timestamp must be strictly greater than `end_timestamp`.
+    /// - `milestone_validated` must be false; validated vaults must use `release_funds`.
+    ///
+    /// # Errors
+    /// - Returns `Error::VaultNotFound` when the vault id is unknown.
+    /// - Returns `Error::VaultNotActive` for terminal vault states.
+    /// - Returns `Error::InvalidTimestamp` before or exactly at the deadline.
+    /// - Returns `Error::NotAuthorized` when the milestone was already validated.
     pub fn redirect_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
