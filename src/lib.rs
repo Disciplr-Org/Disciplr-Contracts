@@ -341,7 +341,21 @@ impl DisciplrVault {
     // cancel_vault
     // -----------------------------------------------------------------------
 
-    /// Cancel vault and return funds to creator.
+    /// Cancel an active vault and return its escrowed funds to the creator.
+    ///
+    /// Only the original vault creator may cancel, and the creator must authorize
+    /// the call. Cancellation is available only while the vault is still Active;
+    /// terminal vault states are rejected before any token transfer is attempted.
+    ///
+    /// # Preconditions
+    /// - `vault_id` must identify an existing vault.
+    /// - The vault must still be `VaultStatus::Active`.
+    /// - The vault creator must authorize the call.
+    ///
+    /// # Errors
+    /// - Returns `Error::VaultNotFound` when the vault id is unknown.
+    /// - Returns `Error::VaultNotActive` for terminal vault states.
+    /// - Soroban authorization fails if the creator does not authorize the call.
     pub fn cancel_vault(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
