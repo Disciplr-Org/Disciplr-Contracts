@@ -164,10 +164,8 @@ cat test_snapshots/test/test_vault_creation_emits_event.1.json
 ### Double-Spending Prevention
 
 ```bash
-# Run terminal state protection tests
-cargo test test_completed_cannot
-cargo test test_failed_cannot
-cargo test test_cancelled_cannot
+# Run the lifecycle path that redirects funds after a failed milestone
+cargo test test_full_lifecycle_failure_redirection
 ```
 
 ### State Machine Integrity
