@@ -947,6 +947,26 @@ mod tests {
     }
 
     #[test]
+    fn test_redirect_funds_on_completed_vault_rejects_with_vault_not_active() {
+        let setup = TestSetup::new();
+        let client = setup.client();
+
+        setup.env.ledger().set_timestamp(setup.start_timestamp);
+        let vault_id = setup.create_default_vault();
+        setup.env.ledger().set_timestamp(setup.end_timestamp + 1);
+
+        let result = client.release_funds(&vault_id, &setup.usdc_token);
+        assert!(result);
+        assert_eq!(
+            client.try_redirect_funds(&vault_id, &setup.usdc_token),
+            Err(Ok(Error::VaultNotActive))
+        );
+
+        let vault = client.get_vault_state(&vault_id).unwrap();
+        assert_eq!(vault.status, VaultStatus::Completed);
+    }
+
+    #[test]
     fn test_double_redirect_rejected() {
         let setup = TestSetup::new();
         let client = setup.client();
