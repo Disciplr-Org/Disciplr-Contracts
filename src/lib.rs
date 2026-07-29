@@ -254,6 +254,22 @@ impl DisciplrVault {
     // -----------------------------------------------------------------------
 
     /// Release vault funds to `success_destination`.
+    ///
+    /// The vault creator must authorize this call. Release is allowed only while
+    /// the vault is active and either the milestone has already been validated
+    /// or the current ledger timestamp has reached/passed `end_timestamp`.
+    ///
+    /// # Preconditions
+    /// - `vault_id` must identify an existing vault.
+    /// - The vault must still be `VaultStatus::Active`.
+    /// - The caller must be the vault creator.
+    /// - Either `milestone_validated` is true or the deadline has been reached.
+    ///
+    /// # Errors
+    /// - Returns `Error::VaultNotFound` when the vault id is unknown.
+    /// - Returns `Error::VaultNotActive` for terminal vault states.
+    /// - Returns `Error::NotAuthorized` before validation and before the deadline.
+    /// - Soroban authorization fails if the creator does not authorize the call.
     pub fn release_funds(env: Env, vault_id: u32, usdc_token: Address) -> Result<bool, Error> {
         let vault_key = DataKey::Vault(vault_id);
         let mut vault: ProductivityVault = env
