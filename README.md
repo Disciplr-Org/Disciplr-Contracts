@@ -77,3 +77,13 @@ Any attempt to call `validate_milestone`, `release_funds`, `redirect_funds`, or
   for integrators and tooling.
 - [`src/doc.md`](src/doc.md) maps these contract semantics to backend API
   payloads and HTTP error responses.
+
+## Further Reading
+
+- [`vesting.md`](vesting.md) documents the vault data model, contract methods,
+  and security and trust model.
+- [`USDC_INTEGRATION.md`](USDC_INTEGRATION.md) explains the token integration
+  and production USDC trust assumptions.
+- [`TESTING_GUIDE.md`](TESTING_GUIDE.md) explains how to run and extend the
+  contract tests.
+- [`CHANGELOG.md`](CHANGELOG.md) records the contract's release history.
