@@ -475,16 +475,9 @@ Expected output should include tests for:
 
 ## File Structure
 
-```
-disciplr-contracts/
-├── src/
-│   └── lib.rs           # DisciplrVault contract implementation
-├── tests/
-│   └── create_vault.rs  # Integration tests for create_vault
-├── Cargo.toml           # Project dependencies
-├── README.md            # Project overview
-└── vesting.md           # This documentation
-```
+The repository layout changes as tests, documentation, workflows, and tooling
+evolve. See the [live repository tree](https://github.com/Disciplr-Org/Disciplr-Contracts)
+for the current, complete file structure.
 
 ---
 
