@@ -2,10 +2,10 @@
 
 ## Quick Start
 
-```bash
-# Check for unresolved merge conflict markers
-git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- .
+Before running the test commands below, follow the canonical conflict-marker
+check and resolution steps in [Merge Hygiene](./docs/MERGE_HYGIENE.md).
 
+```bash
 # Run all tests
 cargo test
 
@@ -118,11 +118,6 @@ cargo tarpaulin --out Html --out Xml --out Lcov --output-dir coverage
 # GitHub Actions workflow included
 .github/workflows/coverage.yml
 ```
-
-The main CI workflow also runs a merge-conflict marker guard before formatting,
-build, and tests. The guard fails if any file contains a line starting with
-`<<<<<<<`, `=======`, or `>>>>>>>`. See [docs/MERGE_HYGIENE.md](./docs/MERGE_HYGIENE.md)
-for the local check and resolution steps.
 
 ## Understanding Coverage Metrics
 
