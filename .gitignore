@@ -6,3 +6,5 @@
 test_snapshots/
 *.log
 .claude
+config.bat
+node_modules
